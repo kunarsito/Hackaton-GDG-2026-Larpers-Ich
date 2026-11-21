@@ -335,7 +335,19 @@ app.post('/api/validate', (req: Request, res: Response) => {
     try {
       final post = _mockPosts.firstWhere((p) => p.id == postId);
       post.replies.add(reply);
-      addKarma(15); // +15 Karma por responder y ayudar a un compañero
+    } catch (_) {}
+    addKarma(15); // +15 Karma por responder y ayudar a un compañero
+    try {
+      await http
+          .post(
+            Uri.parse('${ApiConstants.communityEndpoint}/$postId/replies'),
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-id': _currentUser.id,
+            },
+            body: jsonEncode(reply.toJson()),
+          )
+          .timeout(const Duration(seconds: 2));
     } catch (_) {}
   }
 
@@ -343,6 +355,14 @@ app.post('/api/validate', (req: Request, res: Response) => {
     try {
       final post = _mockPosts.firstWhere((p) => p.id == postId);
       post.upvotes += 1;
+    } catch (_) {}
+    try {
+      await http
+          .post(
+            Uri.parse('${ApiConstants.communityEndpoint}/$postId/upvote'),
+            headers: {'x-user-id': _currentUser.id},
+          )
+          .timeout(const Duration(seconds: 2));
     } catch (_) {}
   }
 
@@ -372,13 +392,18 @@ app.post('/api/validate', (req: Request, res: Response) => {
             body: jsonEncode({
               'challengeId': challengeId,
               'code': code,
+              'userId': _currentUser.id,
             }),
           )
           .timeout(const Duration(seconds: 3));
 
       if (res.statusCode == 200) {
         final result = jsonDecode(res.body) as Map<String, dynamic>;
-        if (result['passed'] == true) {
+        final serverUser = result['user'];
+        if (serverUser is Map<String, dynamic>) {
+          // El backend es la fuente de verdad del karma (sólo suma la 1.ª vez).
+          _currentUser = UserModel.fromJson(serverUser);
+        } else if (result['passed'] == true) {
           addKarma(50);
           if (!_currentUser.solvedChallenges.contains(challengeId)) {
             _currentUser.solvedChallenges.add(challengeId);
