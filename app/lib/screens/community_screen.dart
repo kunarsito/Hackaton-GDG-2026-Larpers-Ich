@@ -7,11 +7,13 @@ import '../widgets/code_block_view.dart';
 class CommunityScreen extends StatefulWidget {
   final String? initialPrefilledTitle;
   final String? initialPrefilledCode;
+  final String? initialChallengeId;
 
   const CommunityScreen({
     super.key,
     this.initialPrefilledTitle,
     this.initialPrefilledCode,
+    this.initialChallengeId,
   });
 
   @override
@@ -26,11 +28,13 @@ class CommunityScreenState extends State<CommunityScreen> {
   void initState() {
     super.initState();
     _loadPosts();
-    if (widget.initialPrefilledTitle != null || widget.initialPrefilledCode != null) {
+    if (widget.initialPrefilledTitle != null ||
+        widget.initialPrefilledCode != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         openNewPostDialog(
           prefilledTitle: widget.initialPrefilledTitle,
           prefilledCode: widget.initialPrefilledCode,
+          challengeId: widget.initialChallengeId,
         );
       });
     }
@@ -43,7 +47,11 @@ class CommunityScreenState extends State<CommunityScreen> {
   }
 
   // Permite abrir el formulario de publicación desde el layout principal o internamente
-  void openNewPostDialog({String? prefilledTitle, String? prefilledCode}) {
+  void openNewPostDialog({
+    String? prefilledTitle,
+    String? prefilledCode,
+    String? challengeId,
+  }) {
     final titleCtrl = TextEditingController(
       text: prefilledTitle != null
           ? 'Ayuda con solución para: $prefilledTitle'
@@ -78,25 +86,24 @@ class CommunityScreenState extends State<CommunityScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.edit_note_rounded, color: AppTheme.phosphorGreen),
-                        SizedBox(width: 8),
-                        Text(
-                          'NUEVO HILO // FORO TÉCNICO',
-                          style: TextStyle(
-                            fontFamily: AppTheme.monoFont,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            color: AppTheme.phosphorGreen,
-                          ),
+                    const Icon(Icons.edit_note_rounded,
+                        color: AppTheme.phosphorGreen),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'NUEVO HILO // FORO TÉCNICO',
+                        style: TextStyle(
+                          fontFamily: AppTheme.monoFont,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.phosphorGreen,
                         ),
-                      ],
+                      ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: AppTheme.greenishGray),
+                      icon:
+                          const Icon(Icons.close, color: AppTheme.greenishGray),
                       onPressed: () => Navigator.pop(ctx),
                     ),
                   ],
@@ -123,7 +130,8 @@ class CommunityScreenState extends State<CommunityScreen> {
                     fillColor: AppTheme.darkSilicon,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(4),
-                      borderSide: const BorderSide(color: AppTheme.circuitTrace),
+                      borderSide:
+                          const BorderSide(color: AppTheme.circuitTrace),
                     ),
                     hintText: 'Ej. Duda con matriz de adyacencia...',
                     hintStyle: const TextStyle(color: AppTheme.circuitTrace),
@@ -151,7 +159,8 @@ class CommunityScreenState extends State<CommunityScreen> {
                     fillColor: AppTheme.darkSilicon,
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(4),
-                      borderSide: const BorderSide(color: AppTheme.circuitTrace),
+                      borderSide:
+                          const BorderSide(color: AppTheme.circuitTrace),
                     ),
                     hintText: 'Explica qué intentaste o en qué línea falla...',
                     hintStyle: const TextStyle(color: AppTheme.circuitTrace),
@@ -211,6 +220,7 @@ class CommunityScreenState extends State<CommunityScreen> {
                         title: titleCtrl.text.trim(),
                         body: bodyCtrl.text.trim(),
                         codeSnippet: codeCtrl.text.trim(),
+                        challengeId: challengeId,
                         replies: [],
                         upvotes: 1,
                       );
@@ -237,6 +247,7 @@ class CommunityScreenState extends State<CommunityScreen> {
                     },
                     child: const Text(
                       'PUBLICAR EN LA COMUNIDAD (+10 KARMA)',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontFamily: AppTheme.monoFont,
                         fontWeight: FontWeight.bold,
@@ -283,61 +294,72 @@ class CommunityScreenState extends State<CommunityScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'HILO // ${post.authorName.toUpperCase()}',
-                          style: const TextStyle(
-                            fontFamily: AppTheme.monoFont,
-                            fontSize: 12,
-                            color: AppTheme.phosphorGreen,
-                            fontWeight: FontWeight.bold,
+                        Expanded(
+                          child: Text(
+                            'HILO // ${post.authorName.toUpperCase()}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontFamily: AppTheme.monoFont,
+                              fontSize: 12,
+                              color: AppTheme.phosphorGreen,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.close, color: AppTheme.greenishGray),
+                          icon: const Icon(Icons.close,
+                              color: AppTheme.greenishGray),
                           onPressed: () => Navigator.pop(ctx),
                         ),
                       ],
                     ),
-                    Text(
-                      post.title,
-                      style: const TextStyle(
-                        fontFamily: AppTheme.monoFont,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.boneWhite,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      post.body,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.boneWhite,
-                        height: 1.4,
-                      ),
-                    ),
-                    if (post.codeSnippet.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      CodeBlockView(code: post.codeSnippet, language: 'dart'),
-                    ],
-                    const Divider(height: 24),
-                    const Text(
-                      'RESPUESTAS DE LA COMUNIDAD:',
-                      style: TextStyle(
-                        fontFamily: AppTheme.monoFont,
-                        fontSize: 11,
-                        color: AppTheme.greenishGray,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
+                    // Todo el contenido del hilo es desplazable: así el campo de
+                    // respuesta siempre cabe aunque el teclado esté abierto.
                     Expanded(
-                      child: post.replies.isEmpty
-                          ? const Center(
+                      child: ListView(
+                        children: [
+                          Text(
+                            post.title,
+                            style: const TextStyle(
+                              fontFamily: AppTheme.monoFont,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.boneWhite,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            post.body,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.boneWhite,
+                              height: 1.4,
+                            ),
+                          ),
+                          if (post.codeSnippet.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            CodeBlockView(
+                                code: post.codeSnippet, language: 'dart'),
+                          ],
+                          const Divider(height: 24),
+                          const Text(
+                            'RESPUESTAS DE LA COMUNIDAD:',
+                            style: TextStyle(
+                              fontFamily: AppTheme.monoFont,
+                              fontSize: 11,
+                              color: AppTheme.greenishGray,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          if (post.replies.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
                               child: Text(
                                 '// No hay respuestas aún. Sé el primero en colaborar (+15 Karma).',
+                                textAlign: TextAlign.center,
                                 style: TextStyle(
                                   fontFamily: AppTheme.monoFont,
                                   fontSize: 11,
@@ -345,57 +367,10 @@ class CommunityScreenState extends State<CommunityScreen> {
                                 ),
                               ),
                             )
-                          : ListView.separated(
-                              itemCount: post.replies.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 8),
-                              itemBuilder: (context, i) {
-                                final rep = post.replies[i];
-                                return Container(
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.darkSilicon,
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(color: AppTheme.circuitTrace),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.spaceBetween,
-                                        children: [
-                                          Text(
-                                            '@${rep.authorName}',
-                                            style: const TextStyle(
-                                              fontFamily: AppTheme.monoFont,
-                                              fontSize: 11,
-                                              color: AppTheme.solderGold,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                          Text(
-                                            rep.createdAt,
-                                            style: const TextStyle(
-                                              fontFamily: AppTheme.monoFont,
-                                              fontSize: 10,
-                                              color: AppTheme.greenishGray,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        rep.body,
-                                        style: const TextStyle(
-                                          fontSize: 12.5,
-                                          color: AppTheme.boneWhite,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                          else
+                            ...post.replies.map(_buildReplyTile),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Row(
@@ -418,8 +393,8 @@ class CommunityScreenState extends State<CommunityScreen> {
                               ),
                               border: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(4),
-                                borderSide:
-                                    const BorderSide(color: AppTheme.circuitTrace),
+                                borderSide: const BorderSide(
+                                    color: AppTheme.circuitTrace),
                               ),
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: 12,
@@ -446,8 +421,9 @@ class CommunityScreenState extends State<CommunityScreen> {
                               body: replyCtrl.text.trim(),
                               createdAt: 'Ahora',
                             );
-                            await _apiService.addReplyToPost(post.id, newRep);
                             replyCtrl.clear();
+                            await _apiService.addReplyToPost(post.id, newRep);
+                            if (!mounted) return;
                             setModalState(() {});
                             setState(() {});
                           },
@@ -462,6 +438,57 @@ class CommunityScreenState extends State<CommunityScreen> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildReplyTile(ForumReply rep) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppTheme.darkSilicon,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: AppTheme.circuitTrace),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '@${rep.authorName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontFamily: AppTheme.monoFont,
+                    fontSize: 11,
+                    color: AppTheme.solderGold,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                rep.createdAt,
+                style: const TextStyle(
+                  fontFamily: AppTheme.monoFont,
+                  fontSize: 10,
+                  color: AppTheme.greenishGray,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            rep.body,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: AppTheme.boneWhite,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -539,6 +566,7 @@ class CommunityScreenState extends State<CommunityScreen> {
                       ),
                       onPressed: () => openNewPostDialog(),
                       child: const Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(Icons.add, size: 16),
                           SizedBox(width: 4),
@@ -580,47 +608,53 @@ class CommunityScreenState extends State<CommunityScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: AppTheme.solderGold,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      '@${post.authorName}',
-                      style: const TextStyle(
-                        fontFamily: AppTheme.monoFont,
-                        fontSize: 11,
-                        color: AppTheme.solderGold,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    color: AppTheme.solderGold,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-                if (post.challengeId != null)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0F1511),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppTheme.circuitTrace),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '@${post.authorName}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontFamily: AppTheme.monoFont,
+                      fontSize: 11,
+                      color: AppTheme.solderGold,
+                      fontWeight: FontWeight.bold,
                     ),
-                    child: Text(
-                      '[RETO: ${post.challengeId}]',
-                      style: const TextStyle(
-                        fontFamily: AppTheme.monoFont,
-                        fontSize: 10,
-                        color: AppTheme.greenishGray,
+                  ),
+                ),
+                if (post.challengeId != null) ...[
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0F1511),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: AppTheme.circuitTrace),
+                      ),
+                      child: Text(
+                        '[RETO: ${post.challengeId}]',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: AppTheme.monoFont,
+                          fontSize: 10,
+                          color: AppTheme.greenishGray,
+                        ),
                       ),
                     ),
                   ),
+                ],
               ],
             ),
             const SizedBox(height: 8),
@@ -650,24 +684,29 @@ class CommunityScreenState extends State<CommunityScreen> {
               ),
             ],
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 // Upvote button
                 InkWell(
-                  onTap: () {
-                    _apiService.upvotePost(post.id);
-                    setState(() {});
+                  onTap: () async {
+                    await _apiService.upvotePost(post.id);
+                    if (mounted) setState(() {});
                   },
                   borderRadius: BorderRadius.circular(4),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: AppTheme.darkSiliconDeep,
                       borderRadius: BorderRadius.circular(4),
                       border: Border.all(color: AppTheme.circuitTrace),
                     ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         const Icon(
                           Icons.arrow_upward_rounded,
@@ -690,7 +729,8 @@ class CommunityScreenState extends State<CommunityScreen> {
                 ),
                 OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     minimumSize: const Size(0, 30),
                   ),
                   onPressed: () => _showPostRepliesModal(context, post),

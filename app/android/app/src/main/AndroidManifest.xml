@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Necesario en release para llegar al backend (debug/profile ya lo incluyen). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="faro_dev_app"
         android:name="${applicationName}"

@@ -21,7 +21,30 @@ class _MainLayoutState extends State<MainLayout> {
   // Variables de estado para interconectar el Happy Path
   String? _prefilledCommunityTitle;
   String? _prefilledCommunityCode;
+  String? _prefilledChallengeId;
+  // Cambia en cada "Pedir ayuda" para reabrir el formulario aunque el código sea igual.
+  int _helpRequestNonce = 0;
   String? _activeChallengeId;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiService.syncCurrentUser();
+  }
+
+  /// Navegación manual desde la barra: descarta el formulario precargado para
+  /// que no vuelva a abrirse cada vez que se regresa a Comunidad.
+  void _onDestinationSelected(int idx) {
+    setState(() {
+      _currentIndex = idx;
+      _prefilledCommunityTitle = null;
+      _prefilledCommunityCode = null;
+      _prefilledChallengeId = null;
+      if (idx != 1) {
+        _activeChallengeId = null;
+      }
+    });
+  }
 
   void _navigateToTab(int index, {String? challengeId}) {
     setState(() {
@@ -36,14 +59,14 @@ class _MainLayoutState extends State<MainLayout> {
     setState(() {
       _prefilledCommunityTitle = title;
       _prefilledCommunityCode = code;
+      _prefilledChallengeId = _activeChallengeId;
+      _helpRequestNonce++;
       _currentIndex = 2; // Ir al foro
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = _apiService.currentUser;
-
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isDesktop = constraints.maxWidth >= 600;
@@ -72,9 +95,10 @@ class _MainLayoutState extends State<MainLayout> {
                   },
                 ),
           CommunityScreen(
-            key: ValueKey('$_prefilledCommunityTitle-$_prefilledCommunityCode'),
+            key: ValueKey('community-$_helpRequestNonce'),
             initialPrefilledTitle: _prefilledCommunityTitle,
             initialPrefilledCode: _prefilledCommunityCode,
+            initialChallengeId: _prefilledChallengeId,
           ),
           const JobsScreen(),
         ];
@@ -91,7 +115,8 @@ class _MainLayoutState extends State<MainLayout> {
                   )
                 : const Padding(
                     padding: EdgeInsets.only(left: 14),
-                    child: Icon(Icons.memory_rounded, color: AppTheme.phosphorGreen),
+                    child: Icon(Icons.memory_rounded,
+                        color: AppTheme.phosphorGreen),
                   ),
             title: LayoutBuilder(
               builder: (context, constraints) {
@@ -116,7 +141,8 @@ class _MainLayoutState extends State<MainLayout> {
                     if (!isCompact) ...[
                       const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: AppTheme.darkSilicon,
                           borderRadius: BorderRadius.circular(3),
@@ -137,38 +163,45 @@ class _MainLayoutState extends State<MainLayout> {
               },
             ),
             actions: [
-              // Chip en vivo de Karma Técnico
-              Container(
-                margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AppTheme.darkSilicon,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppTheme.solderGold, width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: const BoxDecoration(
-                        color: AppTheme.solderGold,
-                        shape: BoxShape.circle,
+              // Chip en vivo de Karma Técnico (se reconstruye al cambiar el usuario)
+              ListenableBuilder(
+                listenable: _apiService,
+                builder: (context, _) => Container(
+                  margin:
+                      const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppTheme.darkSilicon,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppTheme.solderGold, width: 1),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: const BoxDecoration(
+                          color: AppTheme.solderGold,
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      isMobile ? '${user.karmaPoints}K' : '[KARMA: ${user.karmaPoints}]',
-                      style: const TextStyle(
-                        fontFamily: AppTheme.monoFont,
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.solderGold,
-                        letterSpacing: 0.5,
+                      const SizedBox(width: 5),
+                      Text(
+                        isMobile
+                            ? '${_apiService.currentUser.karmaPoints}K'
+                            : '[KARMA: ${_apiService.currentUser.karmaPoints}]',
+                        style: const TextStyle(
+                          fontFamily: AppTheme.monoFont,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.solderGold,
+                          letterSpacing: 0.5,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -186,14 +219,7 @@ class _MainLayoutState extends State<MainLayout> {
                     // Modo Escritorio / Web (>= 600px): NavigationRail lateral
                     NavigationRail(
                       selectedIndex: _currentIndex,
-                      onDestinationSelected: (idx) {
-                        setState(() {
-                          _currentIndex = idx;
-                          if (idx != 1) {
-                            _activeChallengeId = null;
-                          }
-                        });
-                      },
+                      onDestinationSelected: _onDestinationSelected,
                       labelType: NavigationRailLabelType.all,
                       destinations: const [
                         NavigationRailDestination(
@@ -218,7 +244,8 @@ class _MainLayoutState extends State<MainLayout> {
                         ),
                       ],
                     ),
-                    const VerticalDivider(width: 1, color: AppTheme.circuitTrace),
+                    const VerticalDivider(
+                        width: 1, color: AppTheme.circuitTrace),
                     Expanded(child: screens[_currentIndex]),
                   ],
                 )
@@ -229,14 +256,7 @@ class _MainLayoutState extends State<MainLayout> {
               ? null
               : NavigationBar(
                   selectedIndex: _currentIndex,
-                  onDestinationSelected: (idx) {
-                    setState(() {
-                      _currentIndex = idx;
-                      if (idx != 1) {
-                        _activeChallengeId = null;
-                      }
-                    });
-                  },
+                  onDestinationSelected: _onDestinationSelected,
                   destinations: const [
                     NavigationDestination(
                       icon: Icon(Icons.auto_stories_outlined),

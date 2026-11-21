@@ -64,25 +64,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: AppTheme.darkSilicon,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: AppTheme.solderGold),
-                        ),
-                        child: Text(
-                          '[DATASHEET // ${article.era}]',
-                          style: const TextStyle(
-                            fontFamily: AppTheme.monoFont,
-                            fontSize: 11,
-                            color: AppTheme.solderGold,
-                            fontWeight: FontWeight.bold,
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.darkSilicon,
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: AppTheme.solderGold),
+                          ),
+                          child: Text(
+                            '[DATASHEET // ${article.era}]',
+                            style: const TextStyle(
+                              fontFamily: AppTheme.monoFont,
+                              fontSize: 11,
+                              color: AppTheme.solderGold,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close, color: AppTheme.greenishGray),
+                        icon: const Icon(Icons.close,
+                            color: AppTheme.greenishGray),
                         onPressed: () => Navigator.pop(ctx),
                       ),
                     ],
@@ -144,7 +148,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       onPressed: () {
                         Navigator.pop(ctx);
                         if (widget.onNavigateToTab != null) {
-                          widget.onNavigateToTab!(1, challengeId: article.relatedChallengeId);
+                          widget.onNavigateToTab!(1,
+                              challengeId: article.relatedChallengeId);
                         } else {
                           Navigator.push(
                             context,
@@ -311,17 +316,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      '[ERA: ${article.era}]',
-                      style: const TextStyle(
-                        fontFamily: AppTheme.monoFont,
-                        fontSize: 11,
-                        color: AppTheme.solderGold,
-                        fontWeight: FontWeight.bold,
+                    Flexible(
+                      child: Text(
+                        '[ERA: ${article.era}]',
+                        style: const TextStyle(
+                          fontFamily: AppTheme.monoFont,
+                          fontSize: 11,
+                          color: AppTheme.solderGold,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: const Color(0xFF0F1511),
                         borderRadius: BorderRadius.circular(3),
@@ -375,10 +384,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                     OutlinedButton(
                       style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
                         minimumSize: const Size(0, 32),
                       ),
-                      onPressed: () => _showArticleDetailModal(context, article),
+                      onPressed: () =>
+                          _showArticleDetailModal(context, article),
                       child: const Text(
                         'LEER ARCHIVO >',
                         style: TextStyle(

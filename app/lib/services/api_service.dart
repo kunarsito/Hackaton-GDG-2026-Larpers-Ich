@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/constants/api_constants.dart';
 import '../models/user_model.dart';
@@ -7,7 +8,9 @@ import '../models/challenge_model.dart';
 import '../models/forum_post_model.dart';
 import '../models/job_model.dart';
 
-class ApiService {
+/// Servicio singleton. Notifica a sus oyentes (p. ej. el chip de Karma de la
+/// AppBar) cada vez que cambia el usuario actual.
+class ApiService extends ChangeNotifier {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
   ApiService._internal() {
@@ -23,6 +26,36 @@ class ApiService {
 
   late UserModel _currentUser;
   UserModel get currentUser => _currentUser;
+
+  void _setUser(UserModel user) {
+    _currentUser = user;
+    notifyListeners();
+  }
+
+  /// Aplica el usuario devuelto por el backend (fuente de verdad del karma).
+  /// Devuelve false si la respuesta no lo incluía.
+  bool _syncUserFrom(dynamic json) {
+    if (json is Map<String, dynamic> && json['user'] is Map<String, dynamic>) {
+      _setUser(UserModel.fromJson(json['user'] as Map<String, dynamic>));
+      return true;
+    }
+    return false;
+  }
+
+  /// Carga el perfil del backend al iniciar; si no responde se mantiene el local.
+  Future<void> syncCurrentUser() async {
+    try {
+      final res = await http
+          .get(
+            Uri.parse(ApiConstants.userEndpoint),
+            headers: {'x-user-id': _currentUser.id},
+          )
+          .timeout(const Duration(seconds: 2));
+      if (res.statusCode == 200) {
+        _setUser(UserModel.fromJson(jsonDecode(res.body) as Map<String, dynamic>));
+      }
+    } catch (_) {}
+  }
 
   // Repositorios locales en memoria para fallback offline / demo inmediata
   final List<ArticleModel> _mockArticles = [];
@@ -311,7 +344,12 @@ app.post('/api/validate', (req: Request, res: Response) => {
           .timeout(const Duration(seconds: 2));
       if (res.statusCode == 200) {
         final List<dynamic> data = jsonDecode(res.body);
-        return data.map((e) => ForumPostModel.fromJson(e)).toList();
+        final posts = data.map((e) => ForumPostModel.fromJson(e)).toList();
+        // Se reemplaza la caché local para que upvotes y respuestas se reflejen
+        // sobre los mismos objetos que la UI está mostrando.
+        _mockPosts
+          ..clear()
+          ..addAll(posts);
       }
     } catch (_) {}
     return _mockPosts;
@@ -319,16 +357,20 @@ app.post('/api/validate', (req: Request, res: Response) => {
 
   Future<void> addForumPost(ForumPostModel post) async {
     _mockPosts.insert(0, post);
-    addKarma(10); // +10 Karma por aportar al foro
     try {
-      await http
+      final res = await http
           .post(
             Uri.parse(ApiConstants.communityEndpoint),
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-id': _currentUser.id,
+            },
             body: jsonEncode(post.toJson()),
           )
           .timeout(const Duration(seconds: 2));
+      if (res.statusCode == 201 && _syncUserFrom(jsonDecode(res.body))) return;
     } catch (_) {}
+    addKarma(10); // Offline: +10 Karma por aportar al foro
   }
 
   Future<void> addReplyToPost(String postId, ForumReply reply) async {
@@ -336,9 +378,8 @@ app.post('/api/validate', (req: Request, res: Response) => {
       final post = _mockPosts.firstWhere((p) => p.id == postId);
       post.replies.add(reply);
     } catch (_) {}
-    addKarma(15); // +15 Karma por responder y ayudar a un compañero
     try {
-      await http
+      final res = await http
           .post(
             Uri.parse('${ApiConstants.communityEndpoint}/$postId/replies'),
             headers: {
@@ -348,7 +389,9 @@ app.post('/api/validate', (req: Request, res: Response) => {
             body: jsonEncode(reply.toJson()),
           )
           .timeout(const Duration(seconds: 2));
+      if (res.statusCode == 201 && _syncUserFrom(jsonDecode(res.body))) return;
     } catch (_) {}
+    addKarma(15); // Offline: +15 Karma por responder y ayudar a un compañero
   }
 
   Future<void> upvotePost(String postId) async {
@@ -399,15 +442,9 @@ app.post('/api/validate', (req: Request, res: Response) => {
 
       if (res.statusCode == 200) {
         final result = jsonDecode(res.body) as Map<String, dynamic>;
-        final serverUser = result['user'];
-        if (serverUser is Map<String, dynamic>) {
-          // El backend es la fuente de verdad del karma (sólo suma la 1.ª vez).
-          _currentUser = UserModel.fromJson(serverUser);
-        } else if (result['passed'] == true) {
-          addKarma(50);
-          if (!_currentUser.solvedChallenges.contains(challengeId)) {
-            _currentUser.solvedChallenges.add(challengeId);
-          }
+        // El backend es la fuente de verdad del karma (sólo suma la 1.ª vez).
+        if (!_syncUserFrom(result) && result['passed'] == true) {
+          _markSolved(challengeId);
         }
         return result;
       }
@@ -447,12 +484,7 @@ app.post('/api/validate', (req: Request, res: Response) => {
       }
     }
 
-    if (passed) {
-      addKarma(50);
-      if (!_currentUser.solvedChallenges.contains(challengeId)) {
-        _currentUser.solvedChallenges.add(challengeId);
-      }
-    }
+    if (passed) _markSolved(challengeId);
 
     return {
       'passed': passed,
@@ -463,7 +495,15 @@ app.post('/api/validate', (req: Request, res: Response) => {
     };
   }
 
+  /// +50 Karma sólo la primera vez que se resuelve un reto (igual que el backend).
+  void _markSolved(String challengeId) {
+    if (_currentUser.solvedChallenges.contains(challengeId)) return;
+    _currentUser.solvedChallenges.add(challengeId);
+    addKarma(50);
+  }
+
   void addKarma(int amount) {
     _currentUser.karmaPoints += amount;
+    notifyListeners();
   }
 }
