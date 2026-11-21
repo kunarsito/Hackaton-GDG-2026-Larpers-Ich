@@ -170,12 +170,12 @@ class _MainLayoutState extends State<MainLayout> {
                 return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Flexible(
+                    const Flexible(
                       child: Text(
-                        isCompact ? 'DEV HUB' : 'DEV HUB // CAMPUS',
+                        'RutaJunior',
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontFamily: AppTheme.monoFont,
                           fontWeight: FontWeight.bold,
                           fontSize: 14,

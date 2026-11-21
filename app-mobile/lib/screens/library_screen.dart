@@ -66,7 +66,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ModuleHeader(
             title: 'MOD_01 // BIBLIOTECA DIGITAL & HISTORIA',
             subtitle: _tab == 'official'
-                ? 'Contenido oficial de Dev Hub: el legado de los pioneros y sus algoritmos.'
+                ? 'Contenido oficial de RutaJunior: el legado de los pioneros y sus algoritmos.'
                 : _tab == 'community'
                     ? 'Artículos escritos por la comunidad. Lo mejor votado aparece arriba.'
                     : 'Cursos oficiales y de creadores: lecturas y retos en orden.',

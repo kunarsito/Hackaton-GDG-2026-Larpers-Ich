@@ -15,7 +15,7 @@ class FaroDevCampusApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Dev Hub',
+      title: 'RutaJunior',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
       home: const AuthGate(),

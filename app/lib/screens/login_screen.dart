@@ -94,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Si al abrir no se encontró el backend (p. ej. se inició después), se busca de nuevo.
       if (_api.connectedServer == null) await _api.discoverServer();
       if (_api.connectedServer == null) {
-        throw const AuthException('No se encontró el backend de Dev Hub.', offline: true);
+        throw const AuthException('No se encontró el backend de RutaJunior.', offline: true);
       }
       if (_isRegister) {
         await _api.register(
@@ -183,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const Center(child: DevHubLogo(size: 72, withBackground: true)),
                         const SizedBox(height: 12),
                         const Text(
-                          'DEV HUB',
+                          'RutaJunior',
                           textAlign: TextAlign.center,
                           style: TextStyle(
                             fontFamily: AppTheme.monoFont,

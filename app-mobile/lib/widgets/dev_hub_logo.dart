@@ -17,7 +17,7 @@ class DevHubLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: 'Logo de Dev Hub',
+      label: 'Logo de RutaJunior',
       image: true,
       child: CustomPaint(
         size: Size.square(size),
