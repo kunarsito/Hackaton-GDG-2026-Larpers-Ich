@@ -41,6 +41,8 @@ class SymbolKeyboard extends StatelessWidget {
       '[',
       ']',
       ';',
+      '"',
+      "'",
       '=',
       '==',
       '=>',

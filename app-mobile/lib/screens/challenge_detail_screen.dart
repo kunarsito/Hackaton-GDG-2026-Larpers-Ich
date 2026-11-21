@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../core/theme/app_theme.dart';
 import '../models/challenge_model.dart';
 import '../services/api_service.dart';
@@ -21,6 +22,7 @@ class ChallengeDetailScreen extends StatefulWidget {
 class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   final ApiService _apiService = ApiService();
   final TextEditingController _codeController = TextEditingController();
+  final ScrollController _mobileScrollController = ScrollController();
 
   ChallengeModel? _challenge;
   bool _isLoading = true;
@@ -36,6 +38,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   @override
   void dispose() {
     _codeController.dispose();
+    _mobileScrollController.dispose();
     super.dispose();
   }
 
@@ -51,7 +54,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   }
 
   Future<void> _runCode() async {
-    if (_challenge == null) return;
+    if (_challenge == null || _isValidating) return;
     setState(() {
       _isValidating = true;
       _lastValidationResult = null;
@@ -62,12 +65,23 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       code: _codeController.text,
     );
 
-    if (mounted) {
-      setState(() {
-        _isValidating = false;
-        _lastValidationResult = res;
-      });
-    }
+    if (!mounted) return;
+    setState(() {
+      _isValidating = false;
+      _lastValidationResult = res;
+    });
+
+    // En móvil el resultado se muestra al final de la lista desplazable:
+    // lo llevamos a la vista para que el estudiante lo vea sin buscarlo.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_mobileScrollController.hasClients) {
+        _mobileScrollController.animateTo(
+          _mobileScrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
@@ -123,7 +137,14 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
           ),
         ],
       ),
-      body: isDesktop ? _buildDesktopLayout() : _buildMobileLayout(),
+      // Atajo de teclado físico (Web/Escritorio): Ctrl/Cmd + Enter ejecuta las pruebas.
+      body: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.enter, control: true): _runCode,
+          const SingleActivator(LogicalKeyboardKey.enter, meta: true): _runCode,
+        },
+        child: isDesktop ? _buildDesktopLayout() : _buildMobileLayout(),
+      ),
     );
   }
 
@@ -163,7 +184,7 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                   child: _buildCodeEditor(),
                 ),
               ),
-              _buildBottomActionConsole(),
+              _buildDesktopActionConsole(),
             ],
           ),
         ),
@@ -172,11 +193,16 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
   }
 
   // --- LAYOUT MÓVIL (< 600px): Vista apilada con SymbolKeyboard visible ---
+  //
+  // Sólo el botón de ejecutar y el SymbolKeyboard quedan fijos abajo; el
+  // resultado y "Pedir ayuda en el foro" viven dentro de la lista desplazable.
+  // Así nada se desborda cuando el teclado táctil ocupa media pantalla.
   Widget _buildMobileLayout() {
     return Column(
       children: [
         Expanded(
           child: ListView(
+            controller: _mobileScrollController,
             padding: const EdgeInsets.all(16),
             children: [
               _buildChallengeInfoSection(),
@@ -203,17 +229,28 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                 padding: const EdgeInsets.all(12),
                 child: _buildCodeEditor(),
               ),
+              if (_lastValidationResult != null) ...[
+                const SizedBox(height: 16),
+                _buildValidationFeedback(),
+              ],
             ],
           ),
         ),
-
-        // Widget SymbolKeyboard justo encima de los controles táctiles
+        Container(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          decoration: const BoxDecoration(
+            color: AppTheme.darkSilicon,
+            border: Border(
+              top: BorderSide(color: AppTheme.circuitTrace, width: 1),
+            ),
+          ),
+          child: _buildRunButton(compact: true),
+        ),
+        // SymbolKeyboard al final: queda justo encima del teclado táctil.
         SymbolKeyboard(
           controller: _codeController,
           onSymbolInserted: () => setState(() {}),
         ),
-
-        _buildBottomActionConsole(),
       ],
     );
   }
@@ -289,7 +326,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Row(
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
                   children: [
                     Text(
                       'Input: ${tc.input}',
@@ -299,7 +338,6 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                         color: AppTheme.greenishGray,
                       ),
                     ),
-                    const SizedBox(width: 12),
                     Text(
                       'Output: ${tc.expectedOutput}',
                       style: const TextStyle(
@@ -336,10 +374,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
     );
   }
 
-  Widget _buildBottomActionConsole() {
-    final hasResult = _lastValidationResult != null;
-    final passed = hasResult && _lastValidationResult!['passed'] == true;
-
+  /// Consola inferior del modo escritorio: resultado + "Pedir ayuda" + ejecutar.
+  /// El resultado tiene altura máxima con scroll para no desbordar ventanas bajas.
+  Widget _buildDesktopActionConsole() {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: const BoxDecoration(
@@ -351,131 +388,155 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Alerta de feedback si hubo validación
-          if (hasResult) ...[
-            Container(
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color:
-                    passed ? AppTheme.phosphorGreen.withValues(alpha: 0.12) : AppTheme.alertRed.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: passed ? AppTheme.phosphorGreen : AppTheme.alertRed,
+          if (_lastValidationResult != null)
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.35,
+              ),
+              child: SingleChildScrollView(child: _buildValidationFeedback()),
+            ),
+          _buildRunButton(compact: false),
+        ],
+      ),
+    );
+  }
+
+  /// Alerta de resultado y, si falló, el botón Happy Path "Pedir ayuda en el foro".
+  Widget _buildValidationFeedback() {
+    final passed = _lastValidationResult!['passed'] == true;
+    final message = _lastValidationResult!['message']?.toString() ?? '';
+    final karmaAwarded = (_lastValidationResult!['karmaAwarded'] as num?)?.toInt() ?? 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: passed
+                ? AppTheme.phosphorGreen.withValues(alpha: 0.12)
+                : AppTheme.alertRed.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: passed ? AppTheme.phosphorGreen : AppTheme.alertRed,
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                passed ? Icons.check_circle_rounded : Icons.bug_report_rounded,
+                color: passed ? AppTheme.phosphorGreen : AppTheme.alertRed,
+                size: 18,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      passed
+                          ? (karmaAwarded > 0
+                              ? '[TEST_PASSED] ¡Solución correcta! (+$karmaAwarded Karma)'
+                              : '[TEST_PASSED] ¡Solución correcta!')
+                          : '[TEST_FAILED] Error de validación',
+                      style: TextStyle(
+                        fontFamily: AppTheme.monoFont,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: passed ? AppTheme.phosphorGreen : AppTheme.alertRed,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      message,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.boneWhite,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            ],
+          ),
+        ),
+        if (!passed)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.solderGold,
+                side: const BorderSide(color: AppTheme.solderGold, width: 1.2),
+                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+              ),
+              onPressed: () {
+                if (widget.onNavigateToCommunity != null) {
+                  widget.onNavigateToCommunity!(
+                    _challenge!.title,
+                    _codeController.text,
+                  );
+                }
+              },
+              icon: const Icon(Icons.forum_outlined, size: 18),
+              label: const Text(
+                'PEDIR AYUDA EN EL FORO ->',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: AppTheme.monoFont,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildRunButton({required bool compact}) {
+    return SizedBox(
+      width: double.infinity,
+      child: ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppTheme.phosphorGreen,
+          foregroundColor: AppTheme.solderMask,
+          padding: EdgeInsets.symmetric(vertical: compact ? 10 : 14, horizontal: 12),
+        ),
+        onPressed: _isValidating ? null : _runCode,
+        child: _isValidating
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppTheme.solderMask,
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    passed ? Icons.check_circle_rounded : Icons.bug_report_rounded,
-                    color: passed ? AppTheme.phosphorGreen : AppTheme.alertRed,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          passed
-                              ? (((_lastValidationResult!['karmaAwarded'] as num?)?.toInt() ?? 0) > 0
-                                  ? '[TEST_PASSED] ¡Solución correcta! (+${_lastValidationResult!['karmaAwarded']} Karma)'
-                                  : '[TEST_PASSED] ¡Solución correcta!')
-                              : '[TEST_FAILED] Error de validación',
-                          style: TextStyle(
-                            fontFamily: AppTheme.monoFont,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: passed ? AppTheme.phosphorGreen : AppTheme.alertRed,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _lastValidationResult!['message'] ?? '',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.boneWhite,
-                          ),
-                        ),
-                      ],
+                  const Icon(Icons.play_arrow_rounded, size: 20),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      compact
+                          ? 'EJECUTAR PRUEBAS (< 2s)'
+                          : 'EJECUTAR PRUEBAS (< 2s)  [CTRL+ENTER]',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: AppTheme.monoFont,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
                 ],
               ),
-            ),
-
-            // BOTÓN HAPPY PATH: "Pedir ayuda en el foro" cuando falla
-            if (!passed)
-              Container(
-                margin: const EdgeInsets.only(bottom: 12),
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.solderGold,
-                    side: const BorderSide(color: AppTheme.solderGold, width: 1.2),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                  onPressed: () {
-                    if (widget.onNavigateToCommunity != null) {
-                      widget.onNavigateToCommunity!(
-                        _challenge!.title,
-                        _codeController.text,
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.forum_outlined, size: 18),
-                  label: const Text(
-                    'PEDIR AYUDA EN EL FORO ->',
-                    style: TextStyle(
-                      fontFamily: AppTheme.monoFont,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.8,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-
-          // Botón Ejecutar Pruebas
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.phosphorGreen,
-                foregroundColor: AppTheme.solderMask,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              onPressed: _isValidating ? null : _runCode,
-              child: _isValidating
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: AppTheme.solderMask,
-                      ),
-                    )
-                  : const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.play_arrow_rounded, size: 20),
-                        SizedBox(width: 6),
-                        Text(
-                          'EJECUTAR PRUEBAS (< 2s)',
-                          style: TextStyle(
-                            fontFamily: AppTheme.monoFont,
-                            fontSize: 13,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                      ],
-                    ),
-            ),
-          ),
-        ],
       ),
     );
   }

@@ -46,16 +46,20 @@ class CodeBlockView extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    '// SNIPPET: ${language?.toUpperCase() ?? "SOURCE"}',
-                    style: const TextStyle(
-                      fontFamily: AppTheme.monoFont,
-                      fontSize: 11,
-                      color: AppTheme.greenishGray,
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Text(
+                      '// SNIPPET: ${language?.toUpperCase() ?? "SOURCE"}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: AppTheme.monoFont,
+                        fontSize: 11,
+                        color: AppTheme.greenishGray,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   InkWell(
                     onTap: () {
                       Clipboard.setData(ClipboardData(text: code));
@@ -77,6 +81,7 @@ class CodeBlockView extends StatelessWidget {
                     child: const Padding(
                       padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
                             Icons.copy_rounded,

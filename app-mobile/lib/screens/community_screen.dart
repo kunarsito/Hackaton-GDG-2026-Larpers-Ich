@@ -14,11 +14,13 @@ import 'library_screen.dart';
 class CommunityScreen extends StatefulWidget {
   final String? initialPrefilledTitle;
   final String? initialPrefilledCode;
+  final String? initialChallengeId;
 
   const CommunityScreen({
     super.key,
     this.initialPrefilledTitle,
     this.initialPrefilledCode,
+    this.initialChallengeId,
   });
 
   @override
@@ -39,6 +41,7 @@ class CommunityScreenState extends State<CommunityScreen> {
         openNewPostDialog(
           prefilledTitle: widget.initialPrefilledTitle,
           prefilledCode: widget.initialPrefilledCode,
+          challengeId: widget.initialChallengeId,
         );
       });
     }
@@ -54,11 +57,12 @@ class CommunityScreenState extends State<CommunityScreen> {
   }
 
   // Permite abrir el formulario de publicación desde el layout principal o internamente
-  void openNewPostDialog({String? prefilledTitle, String? prefilledCode}) {
+  void openNewPostDialog({String? prefilledTitle, String? prefilledCode, String? challengeId}) {
     showNewPostSheet(
       context,
       prefilledTitle: prefilledTitle,
       prefilledCode: prefilledCode,
+      challengeId: challengeId,
     ).then((published) {
       if (published == true) _loadPosts();
     });
@@ -130,6 +134,7 @@ Future<bool?> showNewPostSheet(
   BuildContext context, {
   String? prefilledTitle,
   String? prefilledCode,
+  String? challengeId, // vincula la pregunta al reto de origen ("Pedir ayuda en el foro")
 }) {
   final api = ApiService();
   final titleCtrl = TextEditingController(
@@ -244,6 +249,7 @@ Future<bool?> showNewPostSheet(
                       title: titleCtrl.text.trim(),
                       body: bodyCtrl.text.trim(),
                       codeSnippet: codeCtrl.text.trim(),
+                      challengeId: challengeId,
                       replies: [],
                       upvotes: 0,
                       type: isQuestion ? 'question' : 'post',

@@ -30,6 +30,9 @@ class _MainLayoutState extends State<MainLayout> {
   // Variables de estado para interconectar el Happy Path
   String? _prefilledCommunityTitle;
   String? _prefilledCommunityCode;
+  String? _prefilledChallengeId;
+  // Cambia en cada "Pedir ayuda" para reabrir el formulario aunque el código sea igual.
+  int _helpRequestNonce = 0;
   String? _activeChallengeId;
 
   // RF-16: insignia de mensajes no leídos (polling, sin WebSockets)
@@ -86,7 +89,23 @@ class _MainLayoutState extends State<MainLayout> {
     setState(() {
       _prefilledCommunityTitle = title;
       _prefilledCommunityCode = code;
+      _prefilledChallengeId = _activeChallengeId;
+      _helpRequestNonce++;
       _currentIndex = 2; // Ir al foro
+    });
+  }
+
+  /// Navegación manual desde la barra: descarta el formulario precargado para
+  /// que no vuelva a abrirse cada vez que se regresa a Comunidad.
+  void _onDestinationSelected(int idx) {
+    setState(() {
+      _currentIndex = idx;
+      _prefilledCommunityTitle = null;
+      _prefilledCommunityCode = null;
+      _prefilledChallengeId = null;
+      if (idx != 1) {
+        _activeChallengeId = null;
+      }
     });
   }
 
@@ -122,9 +141,10 @@ class _MainLayoutState extends State<MainLayout> {
                   },
                 ),
           CommunityScreen(
-            key: ValueKey('$_prefilledCommunityTitle-$_prefilledCommunityCode'),
+            key: ValueKey('community-$_helpRequestNonce'),
             initialPrefilledTitle: _prefilledCommunityTitle,
             initialPrefilledCode: _prefilledCommunityCode,
+            initialChallengeId: _prefilledChallengeId,
           ),
           const JobsScreen(),
           const ProfileScreen(embedded: true),
@@ -343,14 +363,7 @@ class _MainLayoutState extends State<MainLayout> {
                     // Modo Escritorio / Web (>= 600px): NavigationRail lateral
                     NavigationRail(
                       selectedIndex: _currentIndex,
-                      onDestinationSelected: (idx) {
-                        setState(() {
-                          _currentIndex = idx;
-                          if (idx != 1) {
-                            _activeChallengeId = null;
-                          }
-                        });
-                      },
+                      onDestinationSelected: _onDestinationSelected,
                       labelType: NavigationRailLabelType.all,
                       destinations: const [
                         NavigationRailDestination(
@@ -391,14 +404,7 @@ class _MainLayoutState extends State<MainLayout> {
               ? null
               : NavigationBar(
                   selectedIndex: _currentIndex,
-                  onDestinationSelected: (idx) {
-                    setState(() {
-                      _currentIndex = idx;
-                      if (idx != 1) {
-                        _activeChallengeId = null;
-                      }
-                    });
-                  },
+                  onDestinationSelected: _onDestinationSelected,
                   destinations: const [
                     NavigationDestination(
                       icon: Icon(Icons.auto_stories_outlined),
