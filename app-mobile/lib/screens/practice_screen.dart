@@ -212,8 +212,11 @@ class _PracticeScreenState extends State<PracticeScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 4,
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -234,6 +237,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
                   ),
                   if (isSolved)
                     const Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.check_circle_rounded,
                             size: 14, color: AppTheme.phosphorGreen),

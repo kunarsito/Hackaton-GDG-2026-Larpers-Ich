@@ -50,6 +50,7 @@ class _MainLayoutState extends State<MainLayout> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isDesktop = constraints.maxWidth >= 600;
+        final bool isMobile = !isDesktop;
 
         final screens = [
           LibraryScreen(
@@ -95,42 +96,54 @@ class _MainLayoutState extends State<MainLayout> {
                     padding: EdgeInsets.only(left: 14),
                     child: Icon(Icons.memory_rounded, color: AppTheme.phosphorGreen),
                   ),
-            title: Row(
-              children: [
-                const Text(
-                  '> FARO_DEV // CAMPUS',
-                  style: TextStyle(
-                    fontFamily: AppTheme.monoFont,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: AppTheme.phosphorGreen,
-                    letterSpacing: 1.1,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: AppTheme.darkSilicon,
-                    borderRadius: BorderRadius.circular(3),
-                    border: Border.all(color: AppTheme.circuitTrace),
-                  ),
-                  child: const Text(
-                    'REV 1.0',
-                    style: TextStyle(
-                      fontFamily: AppTheme.monoFont,
-                      fontSize: 9,
-                      color: AppTheme.greenishGray,
+            title: LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = isMobile || constraints.maxWidth < 180;
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        isCompact ? '> FARO_DEV' : '> FARO_DEV // CAMPUS',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontFamily: AppTheme.monoFont,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: AppTheme.phosphorGreen,
+                          letterSpacing: 1.1,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                    if (!isCompact) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.darkSilicon,
+                          borderRadius: BorderRadius.circular(3),
+                          border: Border.all(color: AppTheme.circuitTrace),
+                        ),
+                        child: const Text(
+                          'REV 1.0',
+                          style: TextStyle(
+                            fontFamily: AppTheme.monoFont,
+                            fontSize: 9,
+                            color: AppTheme.greenishGray,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
             actions: [
               // Chip en vivo de Karma Técnico
               Container(
-                margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppTheme.darkSilicon,
                   borderRadius: BorderRadius.circular(20),
@@ -147,15 +160,15 @@ class _MainLayoutState extends State<MainLayout> {
                         shape: BoxShape.circle,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     Text(
-                      '[KARMA: ${user.karmaPoints}]',
+                      isMobile ? '${user.karmaPoints}K' : '[KARMA: ${user.karmaPoints}]',
                       style: const TextStyle(
                         fontFamily: AppTheme.monoFont,
-                        fontSize: 11,
+                        fontSize: 10.5,
                         fontWeight: FontWeight.bold,
                         color: AppTheme.solderGold,
-                        letterSpacing: 0.6,
+                        letterSpacing: 0.5,
                       ),
                     ),
                   ],
