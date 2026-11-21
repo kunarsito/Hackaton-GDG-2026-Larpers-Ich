@@ -1,11 +1,11 @@
 {
-    "name": "faro_dev_app",
-    "short_name": "faro_dev_app",
+    "name": "Dev Hub",
+    "short_name": "Dev Hub",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0B0F0D",
+    "theme_color": "#0B0F0D",
+    "description": "Comunidad, práctica y empleo para estudiantes de programación.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

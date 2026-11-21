@@ -2,7 +2,7 @@
     <!-- La app consume la API REST también en el APK de release -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="faro_dev_app"
+        android:label="Dev Hub"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

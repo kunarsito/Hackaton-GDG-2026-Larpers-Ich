@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../core/constants/api_constants.dart';
 import '../services/api_service.dart';
+import '../widgets/dev_hub_logo.dart';
 
 /// Inicio de sesión y registro. Igual en móvil y web: tarjeta centrada de
 /// ancho máximo 420 px con scroll para que el teclado táctil no la tape.
@@ -93,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
       // Si al abrir no se encontró el backend (p. ej. se inició después), se busca de nuevo.
       if (_api.connectedServer == null) await _api.discoverServer();
       if (_api.connectedServer == null) {
-        throw const AuthException('No se encontró el backend de FARO_DEV.', offline: true);
+        throw const AuthException('No se encontró el backend de Dev Hub.', offline: true);
       }
       if (_isRegister) {
         await _api.register(
@@ -179,24 +180,25 @@ class _LoginScreenState extends State<LoginScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.memory_rounded, color: AppTheme.phosphorGreen),
-                            SizedBox(width: 8),
-                            Flexible(
-                              child: Text(
-                                '> FARO_DEV // CAMPUS',
-                                style: TextStyle(
-                                  fontFamily: AppTheme.monoFont,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 15,
-                                  color: AppTheme.phosphorGreen,
-                                  letterSpacing: 1.1,
-                                ),
-                              ),
-                            ),
-                          ],
+                        const Center(child: DevHubLogo(size: 72, withBackground: true)),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'DEV HUB',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: AppTheme.monoFont,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 20,
+                            color: AppTheme.phosphorGreen,
+                            letterSpacing: 3,
+                          ),
                         ),
+                        const Text(
+                          'Comunidad, práctica y empleo para estudiantes de programación',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppTheme.greenishGray, fontSize: 11.5),
+                        ),
+                        const SizedBox(height: 10),
                         const SizedBox(height: 6),
                         Text(
                           _isRegister ? 'Crea tu cuenta' : 'Inicia sesión para continuar',

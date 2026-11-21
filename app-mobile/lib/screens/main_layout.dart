@@ -11,6 +11,7 @@ import 'jobs_screen.dart';
 import 'messages_screen.dart';
 import 'profile_screen.dart';
 import 'talent_screen.dart';
+import '../widgets/dev_hub_logo.dart';
 
 class MainLayout extends StatefulWidget {
   /// Cierra la sesión y vuelve al login (lo maneja AuthGate en main.dart).
@@ -140,8 +141,8 @@ class _MainLayoutState extends State<MainLayout> {
                     },
                   )
                 : const Padding(
-                    padding: EdgeInsets.only(left: 14),
-                    child: Icon(Icons.memory_rounded, color: AppTheme.phosphorGreen),
+                    padding: EdgeInsets.only(left: 12),
+                    child: Center(child: DevHubLogo(size: 26)),
                   ),
             title: LayoutBuilder(
               builder: (context, constraints) {
@@ -151,7 +152,7 @@ class _MainLayoutState extends State<MainLayout> {
                   children: [
                     Flexible(
                       child: Text(
-                        isCompact ? '> FARO_DEV' : '> FARO_DEV // CAMPUS',
+                        isCompact ? 'DEV HUB' : 'DEV HUB // CAMPUS',
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
                         style: const TextStyle(
