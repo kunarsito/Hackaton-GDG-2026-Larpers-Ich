@@ -289,7 +289,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Row(
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 4,
                   children: [
                     Text(
                       'Input: ${tc.input}',
@@ -299,7 +301,6 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                         color: AppTheme.greenishGray,
                       ),
                     ),
-                    const SizedBox(width: 12),
                     Text(
                       'Output: ${tc.expectedOutput}',
                       style: const TextStyle(
