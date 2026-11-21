@@ -1,9 +1,55 @@
 import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
+import '../core/constants/api_constants.dart';
 import '../services/api_service.dart';
 
 /// Inicio de sesión y registro. Igual en móvil y web: tarjeta centrada de
 /// ancho máximo 420 px con scroll para que el teclado táctil no la tape.
+/// Muestra a qué backend está conectada la app (o por qué no) y permite reintentar.
+class _ServerStatus extends StatelessWidget {
+  final VoidCallback onRetry;
+  const _ServerStatus({required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final api = ApiService();
+    final (icon, color, text) = api.connectedServer == null
+        ? (
+            Icons.cloud_off_rounded,
+            AppTheme.alertRed,
+            'Backend no encontrado (probé los puertos ${ApiConstants.candidatePorts.join(', ')}). Inícialo con "npm start" en backend/.',
+          )
+        : api.serverHasSocial
+            ? (Icons.cloud_done_rounded, AppTheme.phosphorGreen, 'Conectado a ${api.connectedServer}')
+            : (
+                Icons.warning_amber_rounded,
+                AppTheme.solderGold,
+                'El backend en ${api.connectedServer} es una versión anterior: perfiles, cursos y mensajes no funcionarán. Reinícialo.',
+              );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(text, style: TextStyle(fontFamily: AppTheme.monoFont, fontSize: 10.5, color: color)),
+        ),
+        if (!api.serverHasSocial)
+          InkWell(
+            onTap: onRetry,
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 4),
+              child: Text(
+                'Reintentar',
+                style: TextStyle(fontSize: 11, color: AppTheme.phosphorGreen, decoration: TextDecoration.underline),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
 class LoginScreen extends StatefulWidget {
   final VoidCallback onLoggedIn;
 
@@ -44,6 +90,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _serverUnreachable = false;
     });
     try {
+      // Si al abrir no se encontró el backend (p. ej. se inició después), se busca de nuevo.
+      if (_api.connectedServer == null) await _api.discoverServer();
+      if (_api.connectedServer == null) {
+        throw const AuthException('No se encontró el backend de FARO_DEV.', offline: true);
+      }
       if (_isRegister) {
         await _api.register(
           name: _nameCtrl.text,
@@ -279,6 +330,13 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                           ),
                         ],
+                        const SizedBox(height: 8),
+                        _ServerStatus(
+                          onRetry: () async {
+                            await _api.discoverServer();
+                            if (mounted) setState(() {});
+                          },
+                        ),
                       ],
                     ),
                   ),

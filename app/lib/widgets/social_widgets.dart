@@ -61,6 +61,14 @@ bool requireOnline(BuildContext context) {
     showSysSnack(context, 'Esta función necesita conexión con el servidor e iniciar sesión.', error: true);
     return false;
   }
+  if (api.connectedServer != null && !api.serverHasSocial) {
+    showSysSnack(
+      context,
+      'El backend en ${api.connectedServer} es una versión anterior. Reinícialo (npm start en backend/).',
+      error: true,
+    );
+    return false;
+  }
   return true;
 }
 

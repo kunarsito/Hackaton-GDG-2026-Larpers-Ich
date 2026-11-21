@@ -37,7 +37,9 @@ app.use(cors()); // indispensable para Flutter Web
 app.use(express.json({ limit: '200kb' }));
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', codeRunner: activeEngine(), time: new Date().toISOString() });
+  // app y apiVersion permiten que el front reconozca este backend entre varios
+  // servidores locales (apiVersion 2 = red social del SRS v2).
+  res.json({ status: 'ok', app: 'faro-dev', apiVersion: 2, codeRunner: activeEngine(), time: new Date().toISOString() });
 });
 
 // RF-12: archivos subidos. Tipo MIME por extensión de la lista blanca; lo que no

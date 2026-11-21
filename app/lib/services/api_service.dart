@@ -73,6 +73,47 @@ class ApiService {
 
   bool get hasSession => _token != null;
 
+  // --- DESCUBRIMIENTO DEL BACKEND ---
+
+  /// URL del backend FARO_DEV encontrado (null = ninguno respondió).
+  String? connectedServer;
+
+  /// 1 = backend anterior (sin red social), 2 = SRS v2 con red social.
+  int serverApiVersion = 0;
+
+  bool get serverHasSocial => serverApiVersion >= 2;
+
+  /// Prueba los puertos candidatos y se queda con el que responde como FARO_DEV
+  /// en /api/health (prefiere la versión más nueva). Evita pegarle a otro
+  /// proyecto que ocupe el puerto 3000.
+  Future<bool> discoverServer() async {
+    final results = await Future.wait(ApiConstants.candidateUrls.map((url) async {
+      try {
+        final res = await http.get(Uri.parse('$url/health')).timeout(const Duration(milliseconds: 1500));
+        if (res.statusCode != 200) return null;
+        final data = jsonDecode(res.body);
+        // Sólo nuestro backend responde con codeRunner en /api/health.
+        if (data is! Map || data['codeRunner'] == null) return null;
+        return (url, (data['apiVersion'] as num?)?.toInt() ?? 1);
+      } catch (_) {
+        return null;
+      }
+    }));
+    (String, int)? best;
+    for (final r in results) {
+      if (r != null && (best == null || r.$2 > best.$2)) best = r;
+    }
+    if (best == null) {
+      connectedServer = null;
+      serverApiVersion = 0;
+      return false;
+    }
+    ApiConstants.useBaseUrl(best.$1);
+    connectedServer = best.$1;
+    serverApiVersion = best.$2;
+    return true;
+  }
+
   /// Petición JSON a la API. Devuelve el JSON decodificado (o null si no hay cuerpo).
   /// Lanza [ApiException] con el mensaje del servidor o `offline: true` sin conexión.
   Future<dynamic> request(

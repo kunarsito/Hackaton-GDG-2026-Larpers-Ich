@@ -39,7 +39,8 @@ class _AuthGateState extends State<AuthGate> {
   @override
   void initState() {
     super.initState();
-    _api.restoreSession().then((ok) {
+    // Primero encuentra el backend FARO_DEV (puede no estar en el puerto 3000).
+    _api.discoverServer().then((_) => _api.restoreSession()).then((ok) {
       if (mounted) {
         setState(() {
           _loggedIn = ok;
