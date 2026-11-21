@@ -361,14 +361,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      'PIONERO: ${article.pioneerName}',
-                      style: const TextStyle(
-                        fontFamily: AppTheme.monoFont,
-                        fontSize: 11,
-                        color: AppTheme.phosphorGreen,
+                    Expanded(
+                      child: Text(
+                        'PIONERO: ${article.pioneerName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontFamily: AppTheme.monoFont,
+                          fontSize: 11,
+                          color: AppTheme.phosphorGreen,
+                        ),
                       ),
                     ),
+                    const SizedBox(width: 8),
                     OutlinedButton(
                       style: OutlinedButton.styleFrom(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

@@ -1,4 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { userIdFromToken } from '../services/auth.service.js';
 
 /** Error con código HTTP que el manejador global convierte en JSON. */
 export class HttpError extends Error {
@@ -17,11 +18,35 @@ export const asyncHandler =
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 
+/** Token de `Authorization: Bearer <token>`, o null. */
+export function bearerToken(req: Request): string | null {
+  const auth = req.header('authorization') ?? '';
+  const match = /^Bearer\s+(\S+)$/i.exec(auth);
+  return match ? match[1] : null;
+}
+
 /**
- * Sin autenticación en el MVP (modo invitado): el usuario sale de la cabecera
- * `x-user-id`, del body (`userId` / `authorId`) o del usuario demo.
+ * Usuario de la sesión. Lanza 401 si el token no es válido o expiró;
+ * devuelve null si no se envió token.
+ */
+export function sessionUserId(req: Request): string | null {
+  const token = bearerToken(req);
+  if (!token) return null;
+  const userId = userIdFromToken(token);
+  if (!userId) throw new HttpError(401, 'Sesión inválida o expirada. Vuelve a iniciar sesión.');
+  return userId;
+}
+
+/**
+ * Usuario actual: el de la sesión (`Authorization: Bearer`). Si no hay token y
+ * REQUIRE_AUTH no es "true", cae al modo invitado: cabecera `x-user-id`,
+ * body (`userId` / `authorId`) o usuario demo.
  */
 export function currentUserId(req: Request): string {
+  const fromSession = sessionUserId(req);
+  if (fromSession) return fromSession;
+  if (process.env.REQUIRE_AUTH === 'true') throw new HttpError(401, 'Inicia sesión para continuar.');
+
   const header = req.header('x-user-id');
   const body = (req.body ?? {}) as Record<string, unknown>;
   const fromBody = typeof body.userId === 'string' ? body.userId : typeof body.authorId === 'string' ? body.authorId : '';

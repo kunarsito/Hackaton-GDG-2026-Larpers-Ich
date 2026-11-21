@@ -119,7 +119,19 @@ function runDart(source: string): Promise<RunOutput> {
       [file],
       { timeout: timeoutMs(), killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, cwd: dir, windowsHide: true },
       (err, stdout, stderr) => {
-        rmSync(file, { force: true });
+        // En Windows el archivo puede seguir bloqueado un instante tras matar el proceso:
+        // no tumbar el servidor por eso, reintentar el borrado más tarde.
+        try {
+          rmSync(file, { force: true });
+        } catch {
+          setTimeout(() => {
+            try {
+              rmSync(file, { force: true });
+            } catch {
+              /* se queda en la carpeta temporal del sistema */
+            }
+          }, 2_000).unref();
+        }
         const e = err as (NodeJS.ErrnoException & { killed?: boolean; code?: number | string }) | null;
         resolve({
           stdout: String(stdout),

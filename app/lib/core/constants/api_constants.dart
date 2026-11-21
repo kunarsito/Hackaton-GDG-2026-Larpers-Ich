@@ -22,4 +22,5 @@ class ApiConstants {
   static String get jobsEndpoint => '$baseUrl/jobs';
   static String get validateCodeEndpoint => '$baseUrl/challenges/validate';
   static String get userEndpoint => '$baseUrl/user';
+  static String get authEndpoint => '$baseUrl/auth';
 }

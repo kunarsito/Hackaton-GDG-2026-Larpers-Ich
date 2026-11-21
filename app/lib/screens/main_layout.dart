@@ -8,7 +8,10 @@ import 'community_screen.dart';
 import 'jobs_screen.dart';
 
 class MainLayout extends StatefulWidget {
-  const MainLayout({super.key});
+  /// Cierra la sesión y vuelve al login (lo maneja AuthGate en main.dart).
+  final VoidCallback? onLogout;
+
+  const MainLayout({super.key, this.onLogout});
 
   @override
   State<MainLayout> createState() => _MainLayoutState();
@@ -158,6 +161,54 @@ class _MainLayoutState extends State<MainLayout> {
                   ],
                 ),
               ),
+              // Menú de cuenta: usuario actual y cerrar sesión
+              PopupMenuButton<String>(
+                tooltip: 'Cuenta',
+                icon: const Icon(Icons.account_circle_outlined, color: AppTheme.phosphorGreen),
+                color: AppTheme.darkSilicon,
+                onSelected: (value) {
+                  if (value == 'logout') widget.onLogout?.call();
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem<String>(
+                    enabled: false,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user.name,
+                          style: const TextStyle(
+                            color: AppTheme.boneWhite,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        if (user.university.isNotEmpty)
+                          Text(
+                            user.university,
+                            style: const TextStyle(color: AppTheme.greenishGray, fontSize: 12),
+                          ),
+                        if (_apiService.isOfflineMode)
+                          const Text(
+                            'Modo demo sin conexión',
+                            style: TextStyle(color: AppTheme.solderGold, fontSize: 12),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  const PopupMenuItem<String>(
+                    value: 'logout',
+                    child: Row(
+                      children: [
+                        Icon(Icons.logout, size: 18, color: AppTheme.alertRed),
+                        SizedBox(width: 10),
+                        Text('Cerrar sesión', style: TextStyle(color: AppTheme.boneWhite)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 6),
             ],
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(1),

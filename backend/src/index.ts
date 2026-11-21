@@ -15,6 +15,8 @@ const { challengesRouter } = await import('./routes/challenges.routes.js');
 const { communityRouter } = await import('./routes/community.routes.js');
 const { jobsRouter } = await import('./routes/jobs.routes.js');
 const { userRouter } = await import('./routes/user.routes.js');
+const { authRouter } = await import('./routes/auth.routes.js');
+const { ensureDemoCredentials } = await import('./services/auth.service.js');
 const { HttpError } = await import('./utils/http.js');
 
 getDb();
@@ -22,6 +24,8 @@ if (isDatabaseEmpty()) {
   seedDatabase();
   console.log('✔ Base de datos vacía: datos semilla cargados');
 }
+
+ensureDemoCredentials(); // cuentas de prueba de los usuarios semilla (idempotente)
 
 const app = express();
 app.use(cors()); // indispensable para Flutter Web
@@ -31,6 +35,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', codeRunner: activeEngine(), time: new Date().toISOString() });
 });
 
+app.use('/api/auth', authRouter);
 app.use('/api/articles', articlesRouter);
 app.use('/api/challenges', challengesRouter);
 app.use('/api/community', communityRouter);

@@ -25,8 +25,18 @@ La primera vez que arranca con la BD vacía siembra los datos solo (`data/faro.d
 | POST | `/api/community/:id/replies` | Responde. +15 karma |
 | POST | `/api/community/:id/upvote` · `/:id/replies/:replyId/upvote` | Voto positivo, +5 karma al autor (RF-07) |
 | GET/POST | `/api/jobs?type=&modality=&q=` · `/:id` | Bolsa de trabajo (RF-08) |
-| GET | `/api/user` · `/leaderboard` · `/:id` | Perfil actual (cabecera `x-user-id`, por defecto `usr-001`) |
+| GET | `/api/user` · `/leaderboard` · `/:id` | Perfil actual (sesión; sin sesión, cabecera `x-user-id` o `usr-001`) |
 | POST | `/api/user` | `{ name, university? }` crea un perfil invitado |
+| POST | `/api/auth/register` | `{ name, email, password, university? }` → `{ token, user }` (contraseña ≥ 8) |
+| POST | `/api/auth/login` | `{ email, password }` → `{ token, user }` |
+| POST | `/api/auth/logout` | Invalida el token |
+| GET | `/api/auth/me` | Usuario de la sesión (401 si no hay o expiró) |
+
+## Login
+
+- Las rutas que identifican al usuario usan `Authorization: Bearer <token>`. Sin token se usa el modo invitado (`x-user-id` / usuario demo), salvo que `REQUIRE_AUTH=true`.
+- Contraseñas con scrypt + sal; en la BD sólo se guarda el SHA-256 del token. Las sesiones duran 30 días.
+- Cuentas de prueba (se crean solas al arrancar): `ada@faro.dev`, `carlos@faro.dev`, `valeria@faro.dev`, `mateo@faro.dev`, `grace@faro.dev`, `linus@faro.dev`, todas con la contraseña `DEMO_PASSWORD` (por defecto `faro1234`).
 
 ## Validador de código
 

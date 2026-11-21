@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants/api_constants.dart';
 import '../models/user_model.dart';
 import '../models/article_model.dart';
@@ -7,22 +8,164 @@ import '../models/challenge_model.dart';
 import '../models/forum_post_model.dart';
 import '../models/job_model.dart';
 
+/// Error de inicio de sesión / registro. [offline] = el servidor no respondió.
+class AuthException implements Exception {
+  final String message;
+  final bool offline;
+  const AuthException(this.message, {this.offline = false});
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
   ApiService._internal() {
-    _currentUser = UserModel(
-      id: 'usr-001',
-      name: 'Ada Dev',
-      university: 'Facultad de Ingeniería',
-      karmaPoints: 420,
-      solvedChallenges: ['ch-01'],
-    );
+    _currentUser = _demoUser();
     _initMockData();
   }
 
   late UserModel _currentUser;
   UserModel get currentUser => _currentUser;
+
+  // --- SESIÓN (LOGIN) ---
+
+  static const String _tokenKey = 'faro_auth_token';
+  static const String _userKey = 'faro_auth_user';
+
+  /// Cuenta de prueba de los usuarios semilla del backend (ver backend/.env.example).
+  static const String demoEmail = 'ada@faro.dev';
+  static const String demoPassword = 'faro1234';
+
+  String? _token;
+  bool _offlineMode = false;
+
+  bool get isLoggedIn => _token != null || _offlineMode;
+  bool get isOfflineMode => _offlineMode;
+
+  UserModel _demoUser() => UserModel(
+        id: 'usr-001',
+        name: 'Ada Dev',
+        university: 'Facultad de Ingeniería',
+        karmaPoints: 420,
+        solvedChallenges: ['ch-01'],
+      );
+
+  Map<String, String> _headers({bool json = false}) => {
+        if (json) 'Content-Type': 'application/json',
+        if (_token != null) 'Authorization': 'Bearer $_token',
+      };
+
+  /// Recupera la sesión guardada. Devuelve true si hay una sesión válida.
+  /// Sin conexión se conserva la sesión guardada (y el último usuario conocido).
+  Future<bool> restoreSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_tokenKey);
+    if (token == null) return false;
+    _token = token;
+
+    final cachedUser = prefs.getString(_userKey);
+    if (cachedUser != null) {
+      try {
+        _currentUser = UserModel.fromJson(jsonDecode(cachedUser) as Map<String, dynamic>);
+      } catch (_) {}
+    }
+
+    try {
+      final res = await http
+          .get(Uri.parse('${ApiConstants.authEndpoint}/me'), headers: _headers())
+          .timeout(const Duration(seconds: 3));
+      if (res.statusCode == 200) {
+        _currentUser = UserModel.fromJson(jsonDecode(res.body) as Map<String, dynamic>);
+        await prefs.setString(_userKey, jsonEncode(_currentUser.toJson()));
+        return true;
+      }
+      if (res.statusCode == 401) {
+        await _clearSession();
+        return false;
+      }
+    } catch (_) {}
+    return true;
+  }
+
+  Future<void> login({required String email, required String password}) {
+    return _authenticate('login', {'email': email.trim(), 'password': password});
+  }
+
+  Future<void> register({
+    required String name,
+    required String email,
+    required String password,
+    String university = '',
+  }) {
+    return _authenticate('register', {
+      'name': name.trim(),
+      'email': email.trim(),
+      'password': password,
+      'university': university.trim(),
+    });
+  }
+
+  Future<void> _authenticate(String path, Map<String, String> body) async {
+    final http.Response res;
+    try {
+      res = await http
+          .post(
+            Uri.parse('${ApiConstants.authEndpoint}/$path'),
+            headers: _headers(json: true),
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      throw const AuthException('No se pudo conectar con el servidor.', offline: true);
+    }
+
+    Map<String, dynamic> data = {};
+    try {
+      final decoded = jsonDecode(res.body);
+      if (decoded is Map<String, dynamic>) data = decoded;
+    } catch (_) {}
+
+    if ((res.statusCode == 200 || res.statusCode == 201) && data['token'] is String) {
+      _token = data['token'] as String;
+      _offlineMode = false;
+      _currentUser = UserModel.fromJson(data['user'] as Map<String, dynamic>);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_tokenKey, _token!);
+      await prefs.setString(_userKey, jsonEncode(_currentUser.toJson()));
+      return;
+    }
+    throw AuthException(
+      data['error'] as String? ?? 'Error del servidor (${res.statusCode}).',
+    );
+  }
+
+  /// Entra sin backend con el usuario demo y los datos semilla en memoria.
+  void enterOfflineDemo() {
+    _offlineMode = true;
+    _currentUser = _demoUser();
+  }
+
+  Future<void> logout() async {
+    if (_token != null) {
+      try {
+        await http
+            .post(Uri.parse('${ApiConstants.authEndpoint}/logout'), headers: _headers())
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
+    await _clearSession();
+    _offlineMode = false;
+    _currentUser = _demoUser();
+  }
+
+  Future<void> _clearSession() async {
+    _token = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_userKey);
+  }
 
   // Repositorios locales en memoria para fallback offline / demo inmediata
   final List<ArticleModel> _mockArticles = [];
@@ -324,7 +467,7 @@ app.post('/api/validate', (req: Request, res: Response) => {
       await http
           .post(
             Uri.parse(ApiConstants.communityEndpoint),
-            headers: {'Content-Type': 'application/json'},
+            headers: _headers(json: true),
             body: jsonEncode(post.toJson()),
           )
           .timeout(const Duration(seconds: 2));
@@ -341,10 +484,7 @@ app.post('/api/validate', (req: Request, res: Response) => {
       await http
           .post(
             Uri.parse('${ApiConstants.communityEndpoint}/$postId/replies'),
-            headers: {
-              'Content-Type': 'application/json',
-              'x-user-id': _currentUser.id,
-            },
+            headers: _headers(json: true),
             body: jsonEncode(reply.toJson()),
           )
           .timeout(const Duration(seconds: 2));
@@ -360,7 +500,7 @@ app.post('/api/validate', (req: Request, res: Response) => {
       await http
           .post(
             Uri.parse('${ApiConstants.communityEndpoint}/$postId/upvote'),
-            headers: {'x-user-id': _currentUser.id},
+            headers: _headers(),
           )
           .timeout(const Duration(seconds: 2));
     } catch (_) {}
@@ -388,7 +528,7 @@ app.post('/api/validate', (req: Request, res: Response) => {
       final res = await http
           .post(
             Uri.parse(ApiConstants.validateCodeEndpoint),
-            headers: {'Content-Type': 'application/json'},
+            headers: _headers(json: true),
             body: jsonEncode({
               'challengeId': challengeId,
               'code': code,

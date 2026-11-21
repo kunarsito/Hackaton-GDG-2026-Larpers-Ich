@@ -7,6 +7,24 @@ CREATE TABLE IF NOT EXISTS users (
   karma_points  INTEGER NOT NULL DEFAULT 0
 );
 
+-- Login: credenciales (contraseña con scrypt) separadas del perfil público
+CREATE TABLE IF NOT EXISTS auth_credentials (
+  user_id        TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  email          TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash  TEXT NOT NULL, -- scrypt$<salt hex>$<hash hex>
+  created_at     TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- Sesiones: se guarda sólo el SHA-256 del token, nunca el token en claro
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash  TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  expires_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+
 CREATE TABLE IF NOT EXISTS challenges (
   id             TEXT PRIMARY KEY,
   title          TEXT NOT NULL,

@@ -301,7 +301,7 @@ export function seedDatabase({ reset = false }: { reset?: boolean } = {}): void 
 
   transaction(() => {
     if (reset) {
-      for (const t of ['forum_replies', 'forum_posts', 'solved_challenges', 'articles', 'jobs', 'challenges', 'users']) {
+      for (const t of ['sessions', 'auth_credentials', 'forum_replies', 'forum_posts', 'solved_challenges', 'articles', 'jobs', 'challenges', 'users']) {
         db.exec(`DELETE FROM ${t}`);
       }
     }
@@ -362,5 +362,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     /* sin .env: valores por defecto */
   }
   seedDatabase({ reset: true });
+  const { ensureDemoCredentials } = await import('../services/auth.service.js');
+  ensureDemoCredentials();
   console.log('✔ Base de datos reiniciada con datos semilla');
 }
