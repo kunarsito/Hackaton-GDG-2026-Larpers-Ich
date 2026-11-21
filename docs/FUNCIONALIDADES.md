@@ -36,7 +36,9 @@ RutaJunior lleva al estudiante por una ruta continua: **aprende** (historia de l
 - Inicio de sesión con **correo y contraseña**; registro con nombre/usuario, universidad, correo y contraseña.
 - Validación de campos vacíos antes de enviar.
 - Muestra **a qué servidor está conectada** la app o por qué no, con opción de reintentar.
-- **"Continuar sin conexión (modo demo)"**: entra con datos de ejemplo en memoria cuando no hay backend.
+- **"Entrar con cuenta demo (Ada Dev)"**: rellena el correo y la contraseña de la cuenta de prueba.
+- **"Continuar sin conexión (modo demo)"**: entra con datos de ejemplo en memoria cuando no hay backend
+  (lo que se publica así no se guarda).
 - La sesión se recuerda en el dispositivo: al reabrir la app se entra directamente.
 - Cuentas de prueba: `ada@faro.dev`, `carlos@faro.dev`, `valeria@faro.dev`, `mateo@faro.dev`,
   `grace@faro.dev`, `linus@faro.dev`, `laura@faro.dev` (reclutadora). Contraseña: `faro1234`.
@@ -82,10 +84,16 @@ RutaJunior lleva al estudiante por una ruta continua: **aprende** (historia de l
 - Las publicaciones que anuncian un reto, curso o artículo enlazan directamente a ese contenido.
 
 ### 3.6 Cursos (`courses_screen.dart`)
-- Filtros: **Todos / Oficiales / Creadores / Inscrito**. Orden: **Mejor valorados / Recientes**.
-- **CREAR CURSO**: título, descripción, nivel, etiquetas y lecciones (artículos y retos).
-- Detalle del curso: lista de lecciones, **Inscribirme**, **Marcar como completado**
-  (+20 de Karma al creador) y **calificar** de 1 a 5.
+- Botón **CREAR CURSO** en su propia fila (no se superpone a los filtros en teléfonos pequeños):
+  título, descripción, nivel, etiquetas y lecciones (artículos y retos, propios u oficiales).
+- Filtros: **Todos / Oficiales / Creadores / Inscrito / Mis cursos**. Orden: **Mejor valorados / Recientes**.
+- **Mis cursos (gestión del creador):** en cada tarjeta propia, menú **⋮ → Editar / Eliminar**; los
+  mismos botones aparecen en la barra superior del detalle. Editar reutiliza el formulario de creación
+  y actualiza el anuncio del feed; eliminar pide confirmación y borra inscripciones, calificaciones y el
+  anuncio. Sólo el autor (o un admin) puede hacerlo; los cursos oficiales no se tocan.
+- Detalle del curso: lista de lecciones, **Inscribirme**, barra **"Prácticas resueltas x/y"**,
+  **Marcar como completado** (sólo se habilita al resolver **todas** las prácticas del curso; el
+  backend también lo exige) con +20 de Karma al creador, y **calificar** de 1 a 5.
 
 ### 3.7 Empleos (`jobs_screen.dart`) — MOD_04
 - Vacantes de tipo **Pasantía, Junior y Freelance**, filtrables, con modalidad y requisitos.
@@ -140,6 +148,8 @@ Cada movimiento queda registrado (`karma_events`) para auditoría.
 6. **Perfil**: mostrar Karma, biografía y subir CV ("Abierto a oportunidades").
 7. Con la cuenta de reclutadora (`laura@faro.dev`): **Buscar talento**, encontrar al estudiante
    y enviarle un **mensaje**; el estudiante se **postula** a una vacante.
+8. *(Opcional)* **Biblioteca → Cursos**: crear un curso con un reto, inscribirse con otra cuenta y mostrar
+   que **no se puede completar** hasta resolver las prácticas; luego editarlo o eliminarlo desde **Mis cursos**.
 
 ---
 
@@ -162,21 +172,25 @@ Cada movimiento queda registrado (`karma_events`) para auditoría.
 | 11 | El identificador interno sigue siendo `com.example.faro_dev_app`. | No es válido para publicar en Play Store. | Cambiarlo antes de publicar (por ejemplo `com.rutajunior.app`). |
 | 12 | El logo sigue siendo el diseñado para el nombre anterior. | Coherencia de marca. | Diseñar un logo propio de RutaJunior. |
 
-### 5.2 Diferencias entre el SRS y el código
+### 5.2 Relación con el SRS
 
-- **Casos de prueba**: el SRS dice `{ input, expected, isHidden }`; el código usa
-  `{ input, expectedOutput, description }` (consistente entre Dart y TypeScript). Conviene actualizar el SRS.
-- **Modalidad de vacante**: el SRS limita a `Remoto | Híbrido | Presencial`; el dato de ejemplo usa
-  `"Híbrido (Campus Tech Hub)"` y el backend acepta texto libre.
-- Los demás contratos de datos (15 entidades) **coinciden** entre `app/lib/models/` y `backend/src/types/models.ts`.
+- El SRS (`docs/SRS.md`) está **actualizado con el código**: nombre RutaJunior, contratos de casos de prueba
+  (`{ input, expectedOutput, description }`), modalidad de vacante como texto libre, conectividad (puertos 3000–3002
+  y `API_BASE_URL`), endpoints reales y CRUD/finalización de cursos.
+- Los contratos de datos (15 entidades) **coinciden** entre `app/lib/models/` y `backend/src/types/models.ts`.
+- Requisitos del SRS **aún no cumplidos**: límite de 64 MB y tiempo < 2 s del validador (punto 1 de 5.1);
+  se listan en la sección 5.3 del SRS.
 
 ### 5.3 Calidad verificada
 
 - `flutter analyze` sin incidencias en `app/` y `app-mobile/`.
-- **28 pruebas automáticas** pasando, entre ellas:
+- **32 pruebas automáticas** pasando, entre ellas:
   - `overflow_test.dart`: 20 escenarios en pantallas de 320 y 360 px, texto al 130 % y teclado abierto, sin desbordes.
   - `happy_path_test.dart`: recorre el flujo de demostración completo sin backend.
+  - `courses_layout_test.dart`: el botón **CREAR CURSO** no se superpone a los filtros en 320–360 px.
 - Backend compila sin errores de tipos (`npx tsc --noEmit`) tras `npm install`.
+- Los cursos se probaron de extremo a extremo contra el backend (crear, completar sin prácticas → rechazado,
+  completar tras resolverlas, editar, eliminar y permisos de autor/oficial).
 - Contraseñas guardadas con **scrypt + sal aleatoria**.
 
 ---
