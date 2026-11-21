@@ -215,10 +215,12 @@ class _JobsScreenState extends State<JobsScreen> {
               ),
             ),
             const SizedBox(height: 4),
-            Row(
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 const Icon(Icons.business_rounded, size: 14, color: AppTheme.greenishGray),
-                const SizedBox(width: 4),
                 Text(
                   job.companyOrPoster,
                   style: const TextStyle(

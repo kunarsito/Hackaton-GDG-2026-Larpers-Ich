@@ -161,11 +161,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                           );
                         }
                       },
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: const Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
                         children: [
                           Icon(Icons.terminal_rounded, size: 20),
-                          SizedBox(width: 8),
                           Text(
                             'PON EN PRÁCTICA SU LEGADO ->',
                             style: TextStyle(
@@ -358,8 +359,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       'PIONERO: ${article.pioneerName}',
