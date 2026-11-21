@@ -27,7 +27,8 @@ La primera vez que arranca con la BD vacía siembra los datos solo (`data/faro.d
 | POST | `/api/posts/:id/vote` · `/save` · `/fork` | Votar (+2/−1 al autor), guardar (estrella), fork de snippet |
 | POST | `/api/posts/:id/replies` · `/replies/:replyId/accept` · `/replies/:replyId/upvote` | Responder · marcar solución (sólo el autor, +15) · votar respuesta |
 | GET/POST | `/api/courses?source=&sort=&authorId=&enrolled=me` · `/:id` | Cursos (RF-09). Top = mejor rating |
-| POST | `/api/courses/:id/enroll` · `/complete` · `/rate` | Inscribirse · completar (+20 al creador) · calificar 1–5 |
+| POST | `/api/courses/:id/enroll` · `/complete` · `/rate` | Inscribirse · completar (exige todas las prácticas resueltas; +20 al creador) · calificar 1–5 |
+| PATCH/DELETE | `/api/courses/:id` | Editar / eliminar un curso propio (autor o `admin`, con sesión; los oficiales no se tocan) |
 | GET | `/api/users?sort=karma&role=creator\|recruiter&skill=&university=&q=&openToWork=true` | Ranking y búsqueda de talento (RF-13, RF-17) |
 | GET/PATCH | `/api/users/me` · GET `/api/users/:id` | Perfil (RF-15). PATCH 🔒: `name, university, bio (≤300), links, skills, openToWork, cvUrl, avatarUrl` |
 | POST/DELETE | `/api/users/:id/follow` · GET `/:id/followers` · `/:id/following` | Seguir |
