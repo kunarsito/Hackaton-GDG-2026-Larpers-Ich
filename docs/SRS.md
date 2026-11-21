@@ -291,6 +291,18 @@ interface KarmaEvent { id: string; userId: string; amount: number; reason: 'chal
 | `POST` | `/api/jobs/:id/apply`; `GET /api/jobs/:id/applications` | Postular con CV y ver postulantes |
 | `POST` | `/api/karma/gift` | Otorgar Karma a otro usuario |
 
+#### 5.3 Estado de implementación (rama `uriel_dev`)
+
+RF-09 a RF-18 implementados en `backend/` y en `app/` (idéntico en `app-mobile/`). Detalle de rutas en `backend/README.md`. Decisiones tomadas al implementar:
+
+- **Campos extra "por usuario"** (dependen de quién consulta, no se guardan tal cual): `myVote`, `isSaved`, `isFollowing`, `isEnrolled`, `isCompleted`, `myRating`, `hasApplied`, `applicationsCount`. También `authorName` en artículos, retos y cursos, y `refId` en `ForumPost` (enlaza el anuncio del feed con el reto/curso/artículo publicado). Están en ambos lados: `backend/src/types/models.ts` y `app/lib/models/`.
+- **Karma al responder**: responder ya no da Karma por sí solo; da +15 cuando el autor del hilo la marca como solución (RF-14). Publicar sigue dando +10 (§6).
+- **Contenido oficial**: admite votos positivos, nunca negativos (§1.1).
+- **Funciones privadas** (mensajes, editar perfil, subir archivos, postularse, regalar Karma) exigen sesión real; nunca usan el modo invitado.
+- **Vacantes**: `contactUrl` pasa a ser opcional porque el canal principal es "Postularme" dentro de la app.
+- **Sin conexión**: Biblioteca y Práctica oficiales, foro y validación siguen funcionando con los datos semilla; lo que necesita servidor (perfiles ajenos, mensajes, cursos, adjuntos) muestra un aviso en vez de quedar en blanco.
+- **Android**: el manifiesto principal declara `INTERNET` y `usesCleartextTraffic` (la API corre por `http` en la red local) y las consultas de `url_launcher`.
+
 ---
 
 ### 6. Flujo Principal de Demostración (*Happy Path Multiplataforma*)

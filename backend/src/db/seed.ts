@@ -10,10 +10,19 @@ import { pathToFileURL } from 'node:url';
 import { getDb, transaction } from './database.js';
 import type { Article, Challenge, JobOpportunity, User } from '../types/models.js';
 
+// Los datos semilla base sólo traen los campos originales; los de la red social
+// (source, votos, bio...) toman sus valores por defecto o los completa ensureSocialSeed().
+type SeedUser = Pick<User, 'id' | 'name' | 'university' | 'karmaPoints' | 'solvedChallenges'>;
+type SeedChallenge = Pick<
+  Challenge,
+  'id' | 'title' | 'difficulty' | 'category' | 'description' | 'starterCode' | 'testCases' | 'functionName'
+>;
+type SeedArticle = Pick<Article, 'id' | 'title' | 'pioneerName' | 'era' | 'summary' | 'content' | 'relatedChallengeId'>;
+
 const HOUR = 3_600_000;
 const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
 
-export const seedUsers: User[] = [
+export const seedUsers: SeedUser[] = [
   { id: 'usr-001', name: 'Ada Dev', university: 'Facultad de Ingeniería', karmaPoints: 420, solvedChallenges: [] },
   { id: 'usr-002', name: 'Carlos_UNAM', university: 'UNAM', karmaPoints: 310, solvedChallenges: ['ch-dijkstra-01'] },
   { id: 'usr-003', name: 'Valeria_ITBA', university: 'ITBA', karmaPoints: 275, solvedChallenges: ['ch-hopper-02'] },
@@ -22,7 +31,7 @@ export const seedUsers: User[] = [
   { id: 'usr-006', name: 'LinusJunior', university: 'UTN', karmaPoints: 540, solvedChallenges: ['ch-hopper-02', 'ch-fizz-04'] },
 ];
 
-export const seedChallenges: Challenge[] = [
+export const seedChallenges: SeedChallenge[] = [
   {
     id: 'ch-dijkstra-01',
     title: 'Ruta Mínima en una Matriz de Costos',
@@ -128,7 +137,7 @@ int calcularCostoMinimo(List<int> caminos) {
   },
 ];
 
-export const seedArticles: Article[] = [
+export const seedArticles: SeedArticle[] = [
   {
     id: 'art-01',
     title: 'Edsger Dijkstra: La Ruta Más Corta y la Belleza de la Simplicidad',
@@ -301,7 +310,12 @@ export function seedDatabase({ reset = false }: { reset?: boolean } = {}): void 
 
   transaction(() => {
     if (reset) {
-      for (const t of ['sessions', 'auth_credentials', 'forum_replies', 'forum_posts', 'solved_challenges', 'articles', 'jobs', 'challenges', 'users']) {
+      for (const t of [
+        'karma_events', 'job_applications', 'messages', 'conversations', 'attachments',
+        'course_ratings', 'course_enrollments', 'courses', 'saved_posts', 'votes', 'follows',
+        'sessions', 'auth_credentials', 'forum_replies', 'forum_posts', 'solved_challenges',
+        'articles', 'jobs', 'challenges', 'users',
+      ]) {
         db.exec(`DELETE FROM ${t}`);
       }
     }
@@ -354,6 +368,153 @@ export function seedDatabase({ reset = false }: { reset?: boolean } = {}): void 
   });
 }
 
+// ---------------------------------------------------------------------------
+// Datos semilla de la red social (SRS v2). Idempotente: se ejecuta en cada
+// arranque y sólo completa lo que falte, también en bases ya existentes.
+// ---------------------------------------------------------------------------
+
+const RECRUITER_ID = 'usr-007';
+
+const seedProfiles: Record<string, { bio: string; skills: string[]; openToWork?: boolean; github?: string; roles?: string[] }> = {
+  'usr-001': { bio: 'Estudiante de Ingeniería en Computación. Me encantan los algoritmos de grafos y Flutter.', skills: ['Dart', 'Flutter', 'Grafos'], openToWork: true, github: 'https://github.com/' },
+  'usr-002': { bio: 'Backend con Node y TypeScript. Preguntando todo lo que no sé.', skills: ['Node.js', 'TypeScript', 'SQL'], openToWork: true },
+  'usr-003': { bio: 'Regex, parsing y compiladores. Fan de Grace Hopper.', skills: ['Python', 'Regex', 'Compiladores'] },
+  'usr-004': { bio: 'Preparándome para mi primera pasantía backend.', skills: ['Express', 'Testing'], openToWork: true },
+  'usr-005': { bio: 'Creo cursos y retos para que aprender algoritmos sea más fácil. 🧠', skills: ['Algoritmos', 'Dart', 'Docencia'], roles: ['student', 'creator'] },
+  'usr-006': { bio: 'Linux, CI/CD y contenedores. Open source de corazón.', skills: ['Linux', 'Docker', 'GitHub Actions'] },
+  [RECRUITER_ID]: { bio: 'Talent Partner en BitLab Studios. Busco talento junior con ganas de aprender.', skills: ['Reclutamiento IT'], roles: ['recruiter'] },
+};
+
+const communityChallenge = {
+  id: 'ch-com-vocales',
+  authorId: 'usr-005',
+  title: 'Contador de Vocales',
+  difficulty: 'Básico',
+  category: 'Strings',
+  description:
+    'Reto de la comunidad: implementa `contarVocales(String texto)` que devuelva cuántas vocales (a, e, i, o, u, sin importar mayúsculas) tiene el texto.\n\nEjemplo:\nEntrada: "Hola Mundo"\nSalida esperada: 4',
+  starterCode: `int contarVocales(String texto) {
+  // Recorre el texto y cuenta las vocales
+  return 0;
+}
+`,
+  functionName: 'contarVocales',
+  testCases: [
+    { input: '"Hola Mundo"', expectedOutput: '4', description: 'Mayúsculas y minúsculas' },
+    { input: '"xyz"', expectedOutput: '0', description: 'Sin vocales' },
+    { input: '"AEIOU aeiou"', expectedOutput: '10', description: 'Todas las vocales' },
+  ],
+};
+
+const seedCourses = [
+  {
+    id: 'crs-pioneros',
+    source: 'official',
+    authorId: null as string | null,
+    title: 'Ruta de los Pioneros',
+    description: 'El curso oficial de FARO_DEV: lee la historia de cada pionero y resuelve el reto que inspiró su legado.',
+    level: 'Intermedio',
+    tags: ['historia', 'algoritmos'],
+    lessons: [
+      { order: 1, title: 'Grace Hopper y los compiladores', articleId: 'art-02' },
+      { order: 2, title: 'Reto: sanitizador de bugs', challengeId: 'ch-hopper-02' },
+      { order: 3, title: 'Dijkstra y la ruta más corta', articleId: 'art-01' },
+      { order: 4, title: 'Reto: ruta mínima', challengeId: 'ch-dijkstra-01' },
+      { order: 5, title: 'Ada Lovelace y el primer algoritmo', articleId: 'art-03' },
+      { order: 6, title: 'Reto: secuencias de Bernoulli', challengeId: 'ch-ada-03' },
+    ],
+  },
+  {
+    id: 'crs-strings-grace',
+    source: 'community',
+    authorId: 'usr-005',
+    title: 'Strings sin miedo',
+    description: 'Curso de GraceDev: manipulación de texto paso a paso, de los logs de Hopper a contar vocales.',
+    level: 'Básico',
+    tags: ['strings', 'principiantes'],
+    lessons: [
+      { order: 1, title: 'Contexto: el primer bug', articleId: 'art-02' },
+      { order: 2, title: 'Práctica: sanitizar logs', challengeId: 'ch-hopper-02' },
+      { order: 3, title: 'Práctica: contar vocales', challengeId: 'ch-com-vocales' },
+    ],
+  },
+];
+
+export function ensureSocialSeed(): void {
+  const db = getDb();
+  transaction(() => {
+    const now = new Date().toISOString();
+    db.prepare("UPDATE articles SET created_at = ? WHERE created_at = ''").run(now);
+    db.prepare("UPDATE challenges SET created_at = ? WHERE created_at = ''").run(now);
+
+    // Sólo si la base tiene los usuarios semilla originales
+    if (!db.prepare("SELECT 1 FROM users WHERE id = 'usr-001'").get()) return;
+
+    db.prepare("INSERT OR IGNORE INTO users (id, name, university, karma_points) VALUES (?, 'Laura_Reclutadora', 'BitLab Studios', 150)").run(RECRUITER_ID);
+
+    for (const [id, p] of Object.entries(seedProfiles)) {
+      db.prepare("UPDATE users SET bio = ?, skills = ?, open_to_work = ? WHERE id = ? AND bio = ''").run(
+        p.bio,
+        JSON.stringify(p.skills),
+        p.openToWork ? 1 : 0,
+        id,
+      );
+      if (p.github) db.prepare("UPDATE users SET links = ? WHERE id = ? AND links = '{}'").run(JSON.stringify({ github: p.github }), id);
+      if (p.roles) db.prepare(`UPDATE users SET roles = ? WHERE id = ? AND roles = '["student"]'`).run(JSON.stringify(p.roles), id);
+    }
+
+    // Las vacantes semilla las publicó la reclutadora (para probar postulantes y mensajes)
+    db.prepare("UPDATE jobs SET poster_id = ? WHERE poster_id IS NULL AND id LIKE 'job-0%'").run(RECRUITER_ID);
+
+    const c = communityChallenge;
+    if (db.prepare("SELECT 1 FROM challenges WHERE id = 'ch-hopper-02'").get()) {
+      db.prepare(
+        `INSERT OR IGNORE INTO challenges (id, title, difficulty, category, description, starter_code, function_name, test_cases,
+                                           sort_order, source, author_id, upvotes, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1000, 'community', ?, 6, ?)`,
+      ).run(c.id, c.title, c.difficulty, c.category, c.description, c.starterCode, c.functionName, JSON.stringify(c.testCases), c.authorId, ago(30 * HOUR));
+
+      for (const course of seedCourses) {
+        db.prepare(
+          `INSERT OR IGNORE INTO courses (id, source, author_id, title, description, level, tags, lessons, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).run(course.id, course.source, course.authorId, course.title, course.description, course.level, JSON.stringify(course.tags), JSON.stringify(course.lessons), ago(48 * HOUR));
+      }
+      // Calificaciones de ejemplo para que el ranking por rating tenga datos
+      const rate = db.prepare('INSERT OR IGNORE INTO course_ratings (course_id, user_id, rating) VALUES (?, ?, ?)');
+      const enroll = db.prepare('INSERT OR IGNORE INTO course_enrollments (course_id, user_id) VALUES (?, ?)');
+      for (const [course, user, rating] of [
+        ['crs-pioneros', 'usr-002', 5],
+        ['crs-pioneros', 'usr-003', 4],
+        ['crs-strings-grace', 'usr-004', 5],
+        ['crs-strings-grace', 'usr-006', 4],
+      ] as const) {
+        enroll.run(course, user);
+        rate.run(course, user, rating);
+      }
+
+      // Anuncios en el feed del contenido de comunidad
+      const insPost = db.prepare(
+        `INSERT OR IGNORE INTO forum_posts (id, author_id, author_name, title, body, code_snippet, challenge_id, upvotes, type, ref_id, created_at)
+         VALUES (?, 'usr-005', 'GraceDev', ?, ?, '', ?, ?, ?, ?, ?)`,
+      );
+      insPost.run('post-seed-vocales', `Nuevo reto: ${c.title}`, 'Subí un reto básico de strings para quienes empiezan. ¡Háganle fork y mejórenlo!', c.id, 9, 'challenge', c.id, ago(30 * HOUR));
+      insPost.run('post-seed-curso', 'Nuevo curso: Strings sin miedo', 'Tres lecciones cortas para perderle el miedo a los strings.', null, 12, 'course', 'crs-strings-grace', ago(47 * HOUR));
+    }
+
+    const follow = db.prepare('INSERT OR IGNORE INTO follows (follower_id, followee_id) VALUES (?, ?)');
+    for (const [a, b] of [
+      ['usr-002', 'usr-005'],
+      ['usr-003', 'usr-005'],
+      ['usr-004', 'usr-005'],
+      ['usr-005', 'usr-001'],
+      [RECRUITER_ID, 'usr-001'],
+    ]) {
+      follow.run(a, b);
+    }
+  });
+}
+
 // `npm run seed` -> reinicia la base con los datos semilla
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
@@ -362,6 +523,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     /* sin .env: valores por defecto */
   }
   seedDatabase({ reset: true });
+  ensureSocialSeed();
   const { ensureDemoCredentials } = await import('../services/auth.service.js');
   ensureDemoCredentials();
   console.log('✔ Base de datos reiniciada con datos semilla');

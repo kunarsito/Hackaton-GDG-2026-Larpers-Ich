@@ -1,11 +1,18 @@
-/** Módulo C — Foro técnico (RF-05, RF-06) y Karma Técnico (RF-07). */
-import { Router } from 'express';
+/**
+ * Módulo C — Comunidad (Facebook + GitHub): foro/feed (RF-05, RF-06, RF-11),
+ * adjuntos (RF-12), ranking Top/Recientes (RF-13) y Karma (RF-14).
+ * Se monta en /api/community (compatibilidad), /api/posts y /api/feed.
+ */
+import { Router, type Request, type Response } from 'express';
 import { getDb, newId, transaction } from '../db/database.js';
-import { addKarma, ensureUser, getUser, KARMA } from '../services/karma.service.js';
-import { currentUserId, HttpError, optionalString, requireString } from '../utils/http.js';
+import { addKarma, applyVote, ensureUser, getUser, KARMA, myVotes, parseJson } from '../services/karma.service.js';
+import { currentUserId, HttpError, optionalString, requireString, sortParam } from '../utils/http.js';
 import { relativeTime } from '../utils/time.js';
 import { findChallenge } from './challenges.routes.js';
-import type { ForumPost, ForumReply } from '../types/models.js';
+import { resolveAttachments } from './uploads.routes.js';
+import type { Attachment, ForumPost, ForumReply, PostType } from '../types/models.js';
+
+const POST_TYPES: PostType[] = ['post', 'question', 'challenge', 'course', 'snippet', 'article'];
 
 interface PostRow {
   id: string;
@@ -16,7 +23,13 @@ interface PostRow {
   code_snippet: string;
   challenge_id: string | null;
   upvotes: number;
+  downvotes: number;
   created_at: string;
+  type: PostType;
+  attachments: string;
+  forked_from_id: string | null;
+  accepted_reply_id: string | null;
+  ref_id: string | null;
 }
 
 interface ReplyRow {
@@ -51,48 +64,127 @@ function loadReplies(postIds: string[]): Map<string, ForumReply[]> {
   return map;
 }
 
-const toPost = (r: PostRow, replies: ForumReply[]): ForumPost => ({
-  id: r.id,
-  authorId: r.author_id,
-  authorName: r.author_name,
-  title: r.title,
-  body: r.body,
-  codeSnippet: r.code_snippet,
-  challengeId: r.challenge_id,
-  replies,
-  upvotes: r.upvotes,
-  createdAt: relativeTime(r.created_at),
-});
+function savedInfo(postIds: string[], viewerId: string): { counts: Map<string, number>; mine: Set<string> } {
+  const counts = new Map<string, number>();
+  const mine = new Set<string>();
+  if (!postIds.length) return { counts, mine };
+  const marks = postIds.map(() => '?').join(',');
+  const db = getDb();
+  for (const r of db
+    .prepare(`SELECT post_id, COUNT(*) AS n FROM saved_posts WHERE post_id IN (${marks}) GROUP BY post_id`)
+    .all(...postIds) as { post_id: string; n: number }[]) {
+    counts.set(r.post_id, r.n);
+  }
+  for (const r of db
+    .prepare(`SELECT post_id FROM saved_posts WHERE user_id = ? AND post_id IN (${marks})`)
+    .all(viewerId, ...postIds) as { post_id: string }[]) {
+    mine.add(r.post_id);
+  }
+  return { counts, mine };
+}
 
-function getPost(id: string): ForumPost | null {
-  const row = getDb().prepare('SELECT * FROM forum_posts WHERE id = ?').get(id) as PostRow | undefined;
-  return row ? toPost(row, loadReplies([id]).get(id) ?? []) : null;
+/** Filas -> ForumPost con respuestas, guardados y voto del usuario que mira. */
+function hydrate(rows: PostRow[], viewerId: string): ForumPost[] {
+  const ids = rows.map((r) => r.id);
+  const replies = loadReplies(ids);
+  const votes = myVotes(viewerId, 'post', ids);
+  const saved = savedInfo(ids, viewerId);
+  return rows.map((r) => ({
+    id: r.id,
+    authorId: r.author_id,
+    authorName: r.author_name,
+    title: r.title,
+    body: r.body,
+    codeSnippet: r.code_snippet,
+    challengeId: r.challenge_id,
+    replies: replies.get(r.id) ?? [],
+    upvotes: r.upvotes,
+    createdAt: relativeTime(r.created_at),
+    type: r.type,
+    downvotes: r.downvotes,
+    attachments: parseJson<Attachment[]>(r.attachments, []),
+    savedCount: saved.counts.get(r.id) ?? 0,
+    forkedFromId: r.forked_from_id ?? undefined,
+    acceptedReplyId: r.accepted_reply_id ?? undefined,
+    refId: r.ref_id ?? undefined,
+    myVote: votes.get(r.id) ?? 0,
+    isSaved: saved.mine.has(r.id),
+  }));
+}
+
+const getRow = (id: string) => getDb().prepare('SELECT * FROM forum_posts WHERE id = ?').get(id) as PostRow | undefined;
+
+function getPost(id: string, viewerId: string): ForumPost | null {
+  const row = getRow(id);
+  return row ? hydrate([row], viewerId)[0] : null;
+}
+
+/**
+ * Publica en el feed el anuncio de un reto/curso/artículo nuevo (RF-10, RF-11).
+ * Debe llamarse dentro de una transacción.
+ */
+export function createFeedPost(opts: {
+  authorId: string;
+  type: PostType;
+  title: string;
+  body: string;
+  refId: string;
+  challengeId?: string;
+}): string {
+  const author = getUser(opts.authorId);
+  const id = newId('post');
+  getDb()
+    .prepare(
+      `INSERT INTO forum_posts (id, author_id, author_name, title, body, code_snippet, challenge_id, upvotes, type, ref_id)
+       VALUES (?, ?, ?, ?, ?, '', ?, 0, ?, ?)`,
+    )
+    .run(id, opts.authorId, author?.name ?? 'Estudiante Dev', opts.title.slice(0, 200), opts.body, opts.challengeId ?? null, opts.type, opts.refId);
+  return id;
+}
+
+/** GET /api/community (= /api/feed) ?sort=top|new&challengeId=&q=&authorId=&type=&saved=me */
+function listPosts(req: Request, res: Response): void {
+  const viewerId = currentUserId(req);
+  const where: string[] = [];
+  const params: string[] = [];
+  if (typeof req.query.challengeId === 'string') {
+    where.push('p.challenge_id = ?');
+    params.push(req.query.challengeId);
+  }
+  if (typeof req.query.authorId === 'string') {
+    where.push('p.author_id = ?');
+    params.push(req.query.authorId);
+  }
+  if (typeof req.query.type === 'string' && POST_TYPES.includes(req.query.type as PostType)) {
+    where.push('p.type = ?');
+    params.push(req.query.type);
+  }
+  if (req.query.saved === 'me') {
+    where.push('p.id IN (SELECT post_id FROM saved_posts WHERE user_id = ?)');
+    params.push(viewerId);
+  }
+  if (typeof req.query.q === 'string' && req.query.q.trim()) {
+    where.push('(p.title LIKE ? OR p.body LIKE ? OR p.code_snippet LIKE ?)');
+    const q = `%${req.query.q.trim()}%`;
+    params.push(q, q, q);
+  }
+  const order = sortParam(req) === 'new' ? 'p.created_at DESC' : '(p.upvotes - p.downvotes) DESC, p.created_at DESC';
+  const rows = getDb()
+    .prepare(`SELECT p.* FROM forum_posts p ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${order}`)
+    .all(...params) as unknown as PostRow[];
+  res.json(hydrate(rows, viewerId));
 }
 
 export const communityRouter = Router();
 
-/** GET /api/community?challengeId=ch-dijkstra-01&q=regex */
-communityRouter.get('/', (req, res) => {
-  const where: string[] = [];
-  const params: string[] = [];
-  if (typeof req.query.challengeId === 'string') {
-    where.push('challenge_id = ?');
-    params.push(req.query.challengeId);
-  }
-  if (typeof req.query.q === 'string' && req.query.q.trim()) {
-    where.push('(title LIKE ? OR body LIKE ? OR code_snippet LIKE ?)');
-    const q = `%${req.query.q.trim()}%`;
-    params.push(q, q, q);
-  }
-  const rows = getDb()
-    .prepare(`SELECT * FROM forum_posts ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC`)
-    .all(...params) as unknown as PostRow[];
-  const replies = loadReplies(rows.map((r) => r.id));
-  res.json(rows.map((r) => toPost(r, replies.get(r.id) ?? [])));
-});
+communityRouter.get('/', listPosts);
+
+/** GET /api/feed — feed de Comunidad (mismo contrato que /api/community). */
+export const feedRouter = Router();
+feedRouter.get('/', listPosts);
 
 communityRouter.get('/:id', (req, res) => {
-  const post = getPost(req.params.id);
+  const post = getPost(req.params.id, currentUserId(req));
   if (!post) throw new HttpError(404, 'Publicación no encontrada.');
   res.json(post);
 });
@@ -100,6 +192,7 @@ communityRouter.get('/:id', (req, res) => {
 /**
  * POST /api/community — acepta el JSON de ForumPostModel.toJson() del front.
  * RF-05: si llega `challengeId` y no hay título/cuerpo, se precargan desde el reto.
+ * RF-12: `attachments` = adjuntos subidos antes con /api/uploads (máx. 4).
  */
 communityRouter.post('/', (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
@@ -115,30 +208,101 @@ communityRouter.post('/', (req, res) => {
   const postBody =
     optionalString(body, 'body', 10_000) || (challenge ? `Enunciado:\n${challenge.description}` : '');
   const codeSnippet = optionalString(body, 'codeSnippet', 20_000);
+  const requestedType = optionalString(body, 'type', 20) as PostType;
+  // Los tipos challenge/course/article los crea el servidor al publicar ese contenido.
+  const type: PostType = requestedType === 'question' || requestedType === 'snippet' ? requestedType : challengeId ? 'question' : 'post';
+  const attachments = resolveAttachments(body.attachments, user.id);
 
   // Respeta el id generado por el cliente (post-<timestamp>) para que coincida con su caché local.
   const clientId = optionalString(body, 'id', 100);
-  const exists = clientId && getDb().prepare('SELECT 1 FROM forum_posts WHERE id = ?').get(clientId);
+  const exists = clientId && getRow(clientId);
   const id = clientId && !exists ? clientId : newId('post');
-  const upvotes = Math.min(1, Math.max(0, Number(body.upvotes) || 0));
 
   transaction(() => {
     getDb()
       .prepare(
-        `INSERT INTO forum_posts (id, author_id, author_name, title, body, code_snippet, challenge_id, upvotes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO forum_posts (id, author_id, author_name, title, body, code_snippet, challenge_id, upvotes, type, attachments)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
       )
-      .run(id, user.id, user.name, title, postBody, codeSnippet, challengeId, upvotes);
-    addKarma(user.id, KARMA.CREATE_POST);
+      .run(id, user.id, user.name, title, postBody, codeSnippet, challengeId, type, JSON.stringify(attachments));
+    addKarma(user.id, KARMA.CREATE_POST, 'post_created', { refId: id });
   });
 
-  res.status(201).json({ post: getPost(id), karmaAwarded: KARMA.CREATE_POST, user: getUser(user.id) });
+  res.status(201).json({ post: getPost(id, user.id), karmaAwarded: KARMA.CREATE_POST, user: getUser(user.id) });
+});
+
+/** POST /api/posts/:id/fork { title?, body?, codeSnippet? } — copia un snippet para mejorarlo (estilo GitHub). */
+communityRouter.post('/:id/fork', (req, res) => {
+  const original = getRow(req.params.id);
+  if (!original) throw new HttpError(404, 'Publicación no encontrada.');
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const user = ensureUser(currentUserId(req));
+  const code = optionalString(body, 'codeSnippet', 20_000) || original.code_snippet;
+  if (!code) throw new HttpError(400, 'Sólo se pueden hacer fork de publicaciones con código.');
+  const title = optionalString(body, 'title', 200) || `Fork de: ${original.title}`.slice(0, 200);
+  const text = optionalString(body, 'body', 10_000) || `Mejora del código de @${original.author_name}.`;
+
+  const id = newId('post');
+  transaction(() => {
+    getDb()
+      .prepare(
+        `INSERT INTO forum_posts (id, author_id, author_name, title, body, code_snippet, challenge_id, upvotes, type, forked_from_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'snippet', ?)`,
+      )
+      .run(id, user.id, user.name, title, text, code, original.challenge_id, original.id);
+    addKarma(user.id, KARMA.CREATE_POST, 'post_created', { refId: id });
+  });
+  res.status(201).json({ post: getPost(id, user.id), user: getUser(user.id) });
+});
+
+/** POST /api/posts/:id/vote { value: 1 | -1 | 0 } — RF-11/RF-13; +2/−1 Karma al autor. */
+communityRouter.post('/:id/vote', (req, res) => {
+  const row = getRow(req.params.id);
+  if (!row) throw new HttpError(404, 'Publicación no encontrada.');
+  const userId = currentUserId(req);
+  ensureUser(userId);
+  transaction(() =>
+    applyVote({
+      userId,
+      targetType: 'post',
+      targetId: row.id,
+      table: 'forum_posts',
+      authorId: row.author_id,
+      value: Number((req.body as Record<string, unknown>)?.value) || 0,
+    }),
+  );
+  res.json(getPost(row.id, userId));
+});
+
+/** POST /api/community/:id/upvote — compatibilidad con el front anterior (= voto +1). */
+communityRouter.post('/:id/upvote', (req, res) => {
+  const row = getRow(req.params.id);
+  if (!row) throw new HttpError(404, 'Publicación no encontrada.');
+  const userId = currentUserId(req);
+  ensureUser(userId);
+  transaction(() =>
+    applyVote({ userId, targetType: 'post', targetId: row.id, table: 'forum_posts', authorId: row.author_id, value: 1 }),
+  );
+  res.json(getPost(row.id, userId));
+});
+
+/** POST /api/posts/:id/save — guardar / quitar de guardados (estrella). */
+communityRouter.post('/:id/save', (req, res) => {
+  const row = getRow(req.params.id);
+  if (!row) throw new HttpError(404, 'Publicación no encontrada.');
+  const userId = currentUserId(req);
+  ensureUser(userId);
+  const db = getDb();
+  const already = db.prepare('SELECT 1 FROM saved_posts WHERE user_id = ? AND post_id = ?').get(userId, row.id);
+  if (already) db.prepare('DELETE FROM saved_posts WHERE user_id = ? AND post_id = ?').run(userId, row.id);
+  else db.prepare('INSERT INTO saved_posts (user_id, post_id) VALUES (?, ?)').run(userId, row.id);
+  res.json(getPost(row.id, userId));
 });
 
 /** POST /api/community/:id/replies — acepta ForumReply.toJson() (+ authorId opcional). */
 communityRouter.post('/:id/replies', (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
-  const post = getPost(req.params.id);
+  const post = getRow(req.params.id);
   if (!post) throw new HttpError(404, 'Publicación no encontrada.');
 
   const text = requireString(body, 'body', 10_000);
@@ -148,42 +312,52 @@ communityRouter.post('/:id/replies', (req, res) => {
   const exists = clientId && getDb().prepare('SELECT 1 FROM forum_replies WHERE id = ?').get(clientId);
   const id = clientId && !exists ? clientId : newId('rep');
 
-  transaction(() => {
-    getDb()
-      .prepare('INSERT INTO forum_replies (id, post_id, author_id, author_name, body) VALUES (?, ?, ?, ?, ?)')
-      .run(id, post.id, user.id, user.name, text);
-    addKarma(user.id, KARMA.REPLY);
-  });
+  getDb()
+    .prepare('INSERT INTO forum_replies (id, post_id, author_id, author_name, body) VALUES (?, ?, ?, ?, ?)')
+    .run(id, post.id, user.id, user.name, text);
 
-  res.status(201).json({ post: getPost(post.id), karmaAwarded: KARMA.REPLY, user: getUser(user.id) });
+  // RF-14: responder no da Karma por sí solo; da +15 si el autor la marca como solución.
+  res.status(201).json({ post: getPost(post.id, user.id), karmaAwarded: 0, user: getUser(user.id) });
 });
 
-/** POST /api/community/:id/upvote — +1 al post y +5 de karma a su autor (si no es auto-voto). */
-communityRouter.post('/:id/upvote', (req, res) => {
-  const post = getPost(req.params.id);
+/** POST /api/posts/:id/replies/:replyId/accept — sólo el autor del hilo; +15 Karma a quien respondió. */
+communityRouter.post('/:id/replies/:replyId/accept', (req, res) => {
+  const post = getRow(req.params.id);
   if (!post) throw new HttpError(404, 'Publicación no encontrada.');
-  const voterId = currentUserId(req);
+  const userId = currentUserId(req);
+  if (post.author_id !== userId) throw new HttpError(403, 'Sólo el autor del hilo puede marcar la solución.');
+  if (post.accepted_reply_id) throw new HttpError(409, 'Este hilo ya tiene una respuesta marcada como solución.');
+  const reply = getDb()
+    .prepare('SELECT * FROM forum_replies WHERE id = ? AND post_id = ?')
+    .get(req.params.replyId, post.id) as ReplyRow | undefined;
+  if (!reply) throw new HttpError(404, 'Respuesta no encontrada.');
 
   transaction(() => {
-    getDb().prepare('UPDATE forum_posts SET upvotes = upvotes + 1 WHERE id = ?').run(post.id);
-    if (voterId !== post.authorId) addKarma(post.authorId, KARMA.RECEIVE_UPVOTE);
+    getDb().prepare('UPDATE forum_posts SET accepted_reply_id = ? WHERE id = ?').run(reply.id, post.id);
+    if (reply.author_id && reply.author_id !== userId) {
+      addKarma(reply.author_id, KARMA.ACCEPTED_ANSWER, 'accepted_answer', { fromUserId: userId, refId: reply.id });
+    }
   });
-
-  res.json(getPost(post.id));
+  res.json(getPost(post.id, userId));
 });
 
-/** POST /api/community/:id/replies/:replyId/upvote — RF-07: votos a respuestas de ayuda. */
+/** POST /api/community/:id/replies/:replyId/upvote — votos a respuestas de ayuda (+2 al autor). */
 communityRouter.post('/:id/replies/:replyId/upvote', (req, res) => {
   const reply = getDb()
     .prepare('SELECT * FROM forum_replies WHERE id = ? AND post_id = ?')
     .get(req.params.replyId, req.params.id) as ReplyRow | undefined;
   if (!reply) throw new HttpError(404, 'Respuesta no encontrada.');
   const voterId = currentUserId(req);
-
-  transaction(() => {
-    getDb().prepare('UPDATE forum_replies SET upvotes = upvotes + 1 WHERE id = ?').run(reply.id);
-    if (reply.author_id && voterId !== reply.author_id) addKarma(reply.author_id, KARMA.RECEIVE_UPVOTE);
-  });
-
-  res.json(getPost(req.params.id));
+  ensureUser(voterId);
+  transaction(() =>
+    applyVote({
+      userId: voterId,
+      targetType: 'reply',
+      targetId: reply.id,
+      table: 'forum_replies',
+      authorId: reply.author_id,
+      value: 1,
+    }),
+  );
+  res.json(getPost(req.params.id, voterId));
 });

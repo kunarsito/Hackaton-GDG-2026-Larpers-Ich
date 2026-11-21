@@ -90,3 +90,116 @@ CREATE TABLE IF NOT EXISTS jobs (
   contact_url        TEXT NOT NULL,
   created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- =====================================================================
+-- Red social (SRS v2, RF-09 a RF-18). Las columnas nuevas de las tablas
+-- anteriores (bio, source, votos, adjuntos...) se agregan en
+-- database.ts -> migrate(), para que también lleguen a bases existentes.
+-- =====================================================================
+
+CREATE TABLE IF NOT EXISTS follows (
+  follower_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  followee_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (follower_id, followee_id)
+);
+
+-- Un voto por usuario y objetivo (post, respuesta, artículo o reto)
+CREATE TABLE IF NOT EXISTS votes (
+  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  target_type  TEXT NOT NULL CHECK (target_type IN ('post', 'reply', 'article', 'challenge')),
+  target_id    TEXT NOT NULL,
+  value        INTEGER NOT NULL CHECK (value IN (-1, 1)),
+  PRIMARY KEY (user_id, target_type, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS saved_posts (
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  post_id     TEXT NOT NULL REFERENCES forum_posts(id) ON DELETE CASCADE,
+  created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (user_id, post_id)
+);
+
+CREATE TABLE IF NOT EXISTS courses (
+  id           TEXT PRIMARY KEY,
+  source       TEXT NOT NULL CHECK (source IN ('official', 'community')),
+  author_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
+  title        TEXT NOT NULL,
+  description  TEXT NOT NULL,
+  cover_url    TEXT,
+  level        TEXT NOT NULL CHECK (level IN ('Básico', 'Intermedio', 'Avanzado')),
+  tags         TEXT NOT NULL DEFAULT '[]', -- JSON string[]
+  lessons      TEXT NOT NULL DEFAULT '[]', -- JSON CourseLesson[]
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE TABLE IF NOT EXISTS course_enrollments (
+  course_id     TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  completed_at  TEXT,
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (course_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS course_ratings (
+  course_id  TEXT NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  rating     INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  PRIMARY KEY (course_id, user_id)
+);
+
+-- Archivos subidos (se guardan en disco: UPLOADS_DIR)
+CREATE TABLE IF NOT EXISTS attachments (
+  id           TEXT PRIMARY KEY,
+  owner_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  file_name    TEXT NOT NULL,
+  mime_type    TEXT NOT NULL,
+  size_bytes   INTEGER NOT NULL,
+  stored_name  TEXT NOT NULL UNIQUE,
+  created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- Mensajes privados 1 a 1 (user_a < user_b para que la pareja sea única)
+CREATE TABLE IF NOT EXISTS conversations (
+  id               TEXT PRIMARY KEY,
+  user_a           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_b           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_message_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE (user_a, user_b)
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id               TEXT PRIMARY KEY,
+  conversation_id  TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  sender_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body             TEXT NOT NULL DEFAULT '',
+  attachments      TEXT NOT NULL DEFAULT '[]', -- JSON Attachment[]
+  created_at       TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  read_at          TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS job_applications (
+  id            TEXT PRIMARY KEY,
+  job_id        TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+  applicant_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  cv_url        TEXT NOT NULL,
+  message       TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'enviada' CHECK (status IN ('enviada', 'vista', 'contactado')),
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE (job_id, applicant_id)
+);
+
+-- Auditoría de Karma (también limita los regalos diarios)
+CREATE TABLE IF NOT EXISTS karma_events (
+  id            TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount        INTEGER NOT NULL,
+  reason        TEXT NOT NULL,
+  from_user_id  TEXT,
+  ref_id        TEXT,
+  created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_karma_user ON karma_events(user_id, created_at);

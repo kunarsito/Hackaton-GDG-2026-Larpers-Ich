@@ -159,8 +159,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             autofillHints: const [AutofillHints.name],
                             style: const TextStyle(color: AppTheme.boneWhite),
                             decoration: _decoration('Nombre o usuario', Icons.person_outline),
-                            validator: (v) =>
-                                (v == null || v.trim().isEmpty) ? 'Escribe tu nombre.' : null,
+                            validator: (v) => (v == null || v.trim().isEmpty) ? 'Escribe tu nombre.' : null,
                           ),
                           const SizedBox(height: 12),
                           TextFormField(
@@ -265,9 +264,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     _serverUnreachable = false;
                                   }),
                           child: Text(
-                            _isRegister
-                                ? '¿Ya tienes cuenta? Inicia sesión'
-                                : '¿No tienes cuenta? Regístrate',
+                            _isRegister ? '¿Ya tienes cuenta? Inicia sesión' : '¿No tienes cuenta? Regístrate',
                             style: const TextStyle(color: AppTheme.phosphorGreen),
                           ),
                         ),

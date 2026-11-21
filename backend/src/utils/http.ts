@@ -53,6 +53,34 @@ export function currentUserId(req: Request): string {
   return (header || fromBody || process.env.DEMO_USER_ID || 'usr-001').trim();
 }
 
+/**
+ * Para funciones privadas (mensajes, editar perfil, postulaciones, regalar Karma):
+ * exige sesión real, sin caer al modo invitado.
+ */
+export function requireSessionUserId(req: Request): string {
+  const userId = sessionUserId(req);
+  if (!userId) throw new HttpError(401, 'Inicia sesión para usar esta función.');
+  return userId;
+}
+
+/** Lista de textos (p. ej. skills o tags): recorta, quita vacíos y duplicados. */
+export function optionalStringArray(body: Record<string, unknown>, field: string, maxItems = 20, maxLen = 40): string[] {
+  const v = body[field];
+  if (v == null) return [];
+  if (!Array.isArray(v)) throw new HttpError(400, `El campo "${field}" debe ser una lista.`);
+  const items = v
+    .filter((x): x is string => typeof x === 'string')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (items.some((x) => x.length > maxLen)) throw new HttpError(400, `Cada elemento de "${field}" admite ${maxLen} caracteres.`);
+  return [...new Set(items)].slice(0, maxItems);
+}
+
+/** ?sort=top|new (por defecto "top", RF-13). */
+export function sortParam(req: Request): 'top' | 'new' {
+  return req.query.sort === 'new' ? 'new' : 'top';
+}
+
 export function requireString(body: Record<string, unknown>, field: string, max = 5_000): string {
   const v = body[field];
   if (typeof v !== 'string' || !v.trim()) throw new HttpError(400, `El campo "${field}" es obligatorio.`);

@@ -21,6 +21,7 @@ export const demoAccounts: { userId: string; email: string }[] = [
   { userId: 'usr-004', email: 'mateo@faro.dev' },
   { userId: 'usr-005', email: 'grace@faro.dev' },
   { userId: 'usr-006', email: 'linus@faro.dev' },
+  { userId: 'usr-007', email: 'laura@faro.dev' }, // reclutadora: publicó las vacantes semilla
 ];
 
 export function hashPassword(password: string): string {

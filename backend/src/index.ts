@@ -8,13 +8,18 @@ try {
 }
 
 const { getDb } = await import('./db/database.js');
-const { isDatabaseEmpty, seedDatabase } = await import('./db/seed.js');
+const { isDatabaseEmpty, seedDatabase, ensureSocialSeed } = await import('./db/seed.js');
 const { activeEngine, warmUpRunner } = await import('./services/code_validator.service.js');
 const { articlesRouter } = await import('./routes/articles.routes.js');
 const { challengesRouter } = await import('./routes/challenges.routes.js');
-const { communityRouter } = await import('./routes/community.routes.js');
+const { communityRouter, feedRouter } = await import('./routes/community.routes.js');
 const { jobsRouter } = await import('./routes/jobs.routes.js');
 const { userRouter } = await import('./routes/user.routes.js');
+const { usersRouter } = await import('./routes/users.routes.js');
+const { coursesRouter } = await import('./routes/courses.routes.js');
+const { messagesRouter } = await import('./routes/messages.routes.js');
+const { karmaRouter } = await import('./routes/karma.routes.js');
+const { uploadsRouter, uploadsDir, mimeForStoredName } = await import('./routes/uploads.routes.js');
 const { authRouter } = await import('./routes/auth.routes.js');
 const { ensureDemoCredentials } = await import('./services/auth.service.js');
 const { HttpError } = await import('./utils/http.js');
@@ -24,7 +29,7 @@ if (isDatabaseEmpty()) {
   seedDatabase();
   console.log('✔ Base de datos vacía: datos semilla cargados');
 }
-
+ensureSocialSeed(); // perfiles, cursos y reto de comunidad de la demo (idempotente)
 ensureDemoCredentials(); // cuentas de prueba de los usuarios semilla (idempotente)
 
 const app = express();
@@ -35,12 +40,37 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', codeRunner: activeEngine(), time: new Date().toISOString() });
 });
 
+// RF-12: archivos subidos. Tipo MIME por extensión de la lista blanca; lo que no
+// sea imagen o PDF se descarga en vez de abrirse en el navegador.
+app.use(
+  '/uploads',
+  express.static(uploadsDir(), {
+    index: false,
+    dotfiles: 'deny',
+    setHeaders: (res, filePath) => {
+      const mime = mimeForStoredName(filePath) ?? 'application/octet-stream';
+      res.setHeader('Content-Type', mime);
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (!mime.startsWith('image/') && mime !== 'application/pdf') {
+        res.setHeader('Content-Disposition', 'attachment');
+      }
+    },
+  }),
+);
+
 app.use('/api/auth', authRouter);
 app.use('/api/articles', articlesRouter);
 app.use('/api/challenges', challengesRouter);
 app.use('/api/community', communityRouter);
+app.use('/api/posts', communityRouter); // alias del SRS §5.2
+app.use('/api/feed', feedRouter);
+app.use('/api/courses', coursesRouter);
 app.use('/api/jobs', jobsRouter);
 app.use('/api/user', userRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/conversations', messagesRouter);
+app.use('/api/karma', karmaRouter);
+app.use('/api/uploads', uploadsRouter);
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });

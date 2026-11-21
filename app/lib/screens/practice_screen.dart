@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import '../core/theme/app_theme.dart';
 import '../models/challenge_model.dart';
 import '../services/api_service.dart';
+import '../services/social_api.dart';
+import '../widgets/social_widgets.dart';
 import 'challenge_detail_screen.dart';
+import 'create_content_sheets.dart';
 
 class PracticeScreen extends StatefulWidget {
   final Function(String challengeId)? onOpenChallenge;
@@ -22,6 +25,8 @@ class _PracticeScreenState extends State<PracticeScreen> {
   final ApiService _apiService = ApiService();
   late Future<List<ChallengeModel>> _challengesFuture;
   String _selectedDifficulty = 'Todos';
+  String _source = 'official'; // official | community (SRS §1.1)
+  String _sort = 'top';
 
   @override
   void initState() {
@@ -31,8 +36,22 @@ class _PracticeScreenState extends State<PracticeScreen> {
 
   void _loadChallenges() {
     setState(() {
-      _challengesFuture = _apiService.getChallenges();
+      _challengesFuture = _apiService.getChallenges(source: _source, sort: _sort);
     });
+  }
+
+  Future<void> _vote(ChallengeModel challenge, int value) async {
+    try {
+      final updated = await _apiService.voteChallenge(challenge.id, value);
+      setState(() {
+        challenge
+          ..upvotes = updated.upvotes
+          ..downvotes = updated.downvotes
+          ..myVote = updated.myVote;
+      });
+    } catch (e) {
+      if (mounted) showApiError(context, e);
+    }
   }
 
   @override
@@ -49,10 +68,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
         final allChallenges = snapshot.data ?? [];
         final filtered = _selectedDifficulty == 'Todos'
             ? allChallenges
-            : allChallenges
-                .where((c) =>
-                    c.difficulty.toLowerCase() == _selectedDifficulty.toLowerCase())
-                .toList();
+            : allChallenges.where((c) => c.difficulty.toLowerCase() == _selectedDifficulty.toLowerCase()).toList();
 
         return RefreshIndicator(
           color: AppTheme.phosphorGreen,
@@ -62,52 +78,48 @@ class _PracticeScreenState extends State<PracticeScreen> {
             padding: const EdgeInsets.all(16),
             children: [
               // Header de Zona de Práctica
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppTheme.darkSilicon,
-                  borderRadius: BorderRadius.circular(6),
-                  border: Border.all(color: AppTheme.circuitTrace),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: const BoxDecoration(
-                        color: AppTheme.solderGold,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'MOD_02 // ZONA DE PRÁCTICA INTERACTIVA',
-                            style: TextStyle(
-                              fontFamily: AppTheme.monoFont,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: AppTheme.solderGold,
-                            ),
-                          ),
-                          SizedBox(height: 2),
-                          Text(
-                            'Resuelve algoritmos con casos de prueba (< 2s) y acumula +50 Karma Técnico.',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: AppTheme.greenishGray,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+              ModuleHeader(
+                title: 'MOD_02 // ZONA DE PRÁCTICA INTERACTIVA',
+                subtitle: _source == 'official'
+                    ? 'Retos oficiales con casos de prueba (< 2s): +10 Karma Técnico cada uno.'
+                    : 'Retos creados por la comunidad: +5 Karma cada uno. Vota, haz fork o crea el tuyo.',
+                color: AppTheme.solderGold,
+                action: TerminalButton(
+                  label: 'CREAR RETO',
+                  icon: Icons.add,
+                  color: AppTheme.solderGold,
+                  onPressed: () async {
+                    if (await showCreateChallengeSheet(context)) {
+                      _source = 'community';
+                      _sort = 'new';
+                      _loadChallenges();
+                    }
+                  },
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              ChoiceChipsRow(
+                options: const ['official', 'community'],
+                labels: const ['Oficial', 'Comunidad'],
+                selected: _source,
+                onSelected: (v) {
+                  _source = v;
+                  _loadChallenges();
+                },
+              ),
+              if (_source == 'community') ...[
+                const SizedBox(height: 8),
+                ChoiceChipsRow(
+                  options: const ['top', 'new'],
+                  labels: const ['Top', 'Recientes'],
+                  selected: _sort,
+                  onSelected: (v) {
+                    _sort = v;
+                    _loadChallenges();
+                  },
+                ),
+              ],
+              const SizedBox(height: 8),
 
               // Selector de Dificultad (Chips con bordes verdes y dorados)
               SingleChildScrollView(
@@ -124,18 +136,14 @@ class _PracticeScreenState extends State<PracticeScreen> {
                             fontFamily: AppTheme.monoFont,
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
-                            color: isSelected
-                                ? AppTheme.solderMask
-                                : AppTheme.boneWhite,
+                            color: isSelected ? AppTheme.solderMask : AppTheme.boneWhite,
                           ),
                         ),
                         selected: isSelected,
                         selectedColor: AppTheme.phosphorGreen,
                         backgroundColor: AppTheme.darkSilicon,
                         side: BorderSide(
-                          color: isSelected
-                              ? AppTheme.phosphorGreen
-                              : AppTheme.circuitTrace,
+                          color: isSelected ? AppTheme.phosphorGreen : AppTheme.circuitTrace,
                         ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(4),
@@ -153,9 +161,15 @@ class _PracticeScreenState extends State<PracticeScreen> {
               const SizedBox(height: 16),
 
               // Lista de Retos
+              if (filtered.isEmpty)
+                EmptyState(
+                  icon: Icons.code_off_rounded,
+                  message: _apiService.isOfflineMode && _source == 'community'
+                      ? '// Los retos de la comunidad necesitan conexión con el servidor.'
+                      : '// No hay retos con este filtro. ¡Crea uno!',
+                ),
               ...filtered.map((challenge) {
-                final isSolved = _apiService.currentUser.solvedChallenges
-                    .contains(challenge.id);
+                final isSolved = _apiService.currentUser.solvedChallenges.contains(challenge.id);
                 return _buildChallengeCard(context, challenge, isSolved);
               }),
             ],
@@ -171,8 +185,7 @@ class _PracticeScreenState extends State<PracticeScreen> {
     bool isSolved,
   ) {
     Color badgeColor;
-    if (challenge.difficulty.toLowerCase().contains('básic') ||
-        challenge.difficulty.toLowerCase().contains('basic')) {
+    if (challenge.difficulty.toLowerCase().contains('básic') || challenge.difficulty.toLowerCase().contains('basic')) {
       badgeColor = AppTheme.phosphorGreen;
     } else if (challenge.difficulty.toLowerCase().contains('inter')) {
       badgeColor = AppTheme.solderGold;
@@ -218,6 +231,11 @@ class _PracticeScreenState extends State<PracticeScreen> {
                 spacing: 8,
                 runSpacing: 4,
                 children: [
+                  SourceBadge(
+                    isOfficial: challenge.isOfficial,
+                    authorId: challenge.authorId,
+                    authorName: challenge.authorName,
+                  ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
@@ -236,15 +254,14 @@ class _PracticeScreenState extends State<PracticeScreen> {
                     ),
                   ),
                   if (isSolved)
-                    const Row(
+                    Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check_circle_rounded,
-                            size: 14, color: AppTheme.phosphorGreen),
-                        SizedBox(width: 4),
+                        const Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.phosphorGreen),
+                        const SizedBox(width: 4),
                         Text(
-                          '[RESUELTO +50K]',
-                          style: TextStyle(
+                          '[RESUELTO +${challenge.karmaReward}K]',
+                          style: const TextStyle(
                             fontFamily: AppTheme.monoFont,
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -254,13 +271,18 @@ class _PracticeScreenState extends State<PracticeScreen> {
                       ],
                     )
                   else
-                    const Text(
-                      '[PENDIENTE: +50K]',
-                      style: TextStyle(
+                    Text(
+                      '[PENDIENTE: +${challenge.karmaReward}K]',
+                      style: const TextStyle(
                         fontFamily: AppTheme.monoFont,
                         fontSize: 10,
                         color: AppTheme.greenishGray,
                       ),
+                    ),
+                  if (challenge.forkedFromId != null)
+                    const Text(
+                      '[FORK]',
+                      style: TextStyle(fontFamily: AppTheme.monoFont, fontSize: 10, color: AppTheme.greenishGray),
                     ),
                 ],
               ),
@@ -285,14 +307,41 @@ class _PracticeScreenState extends State<PracticeScreen> {
               ),
               const SizedBox(height: 10),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    '${challenge.testCases.length} Casos de prueba',
-                    style: const TextStyle(
-                      fontFamily: AppTheme.monoFont,
-                      fontSize: 11,
-                      color: AppTheme.greenishGray,
+                  VoteBar(
+                    score: challenge.score,
+                    myVote: challenge.myVote,
+                    allowDownvote: !challenge.isOfficial, // §1.1: lo oficial no se vota negativo
+                    onVote: (v) => _vote(challenge, v),
+                  ),
+                  const SizedBox(width: 6),
+                  Tooltip(
+                    message: 'Fork: crea tu propia versión de este reto',
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: () async {
+                        if (await showCreateChallengeSheet(context, forkOf: challenge)) {
+                          _source = 'community';
+                          _sort = 'new';
+                          _loadChallenges();
+                        }
+                      },
+                      child: const Padding(
+                        padding: EdgeInsets.all(6),
+                        child: Icon(Icons.call_split_rounded, size: 16, color: AppTheme.greenishGray),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      '${challenge.testCases.length} casos',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontFamily: AppTheme.monoFont,
+                        fontSize: 11,
+                        color: AppTheme.greenishGray,
+                      ),
                     ),
                   ),
                   const Text(

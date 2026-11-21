@@ -1,12 +1,25 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/constants/api_constants.dart';
+import '../models/attachment_model.dart';
 import '../models/user_model.dart';
 import '../models/article_model.dart';
 import '../models/challenge_model.dart';
 import '../models/forum_post_model.dart';
 import '../models/job_model.dart';
+
+/// Error de la API con el mensaje del servidor (`{ error }`). [offline] = sin conexión.
+class ApiException implements Exception {
+  final String message;
+  final int? status;
+  final bool offline;
+  const ApiException(this.message, {this.status, this.offline = false});
+
+  @override
+  String toString() => message;
+}
 
 /// Error de inicio de sesión / registro. [offline] = el servidor no respondió.
 class AuthException implements Exception {
@@ -28,6 +41,110 @@ class ApiService {
 
   late UserModel _currentUser;
   UserModel get currentUser => _currentUser;
+
+  /// Cambia cada vez que el usuario actual se actualiza (Karma, perfil...).
+  /// La barra superior y el perfil lo escuchan para refrescarse en vivo.
+  final ValueNotifier<int> userVersion = ValueNotifier(0);
+
+  void _setCurrentUser(UserModel user, {bool persist = true}) {
+    _currentUser = user;
+    userVersion.value++;
+    if (persist && _token != null) {
+      SharedPreferences.getInstance()
+          .then((p) => p.setString(_userKey, jsonEncode(user.toJson())))
+          .catchError((_) => false);
+    }
+  }
+
+  /// Actualiza el usuario actual con un JSON `User` devuelto por el servidor.
+  void applyServerUser(dynamic json) {
+    if (json is Map<String, dynamic> && json['id'] == _currentUser.id) {
+      _setCurrentUser(UserModel.fromJson(json));
+    }
+  }
+
+  // --- PETICIONES GENÉRICAS ---
+
+  /// Origen del servidor sin "/api" (para archivos en /uploads).
+  String get serverOrigin => ApiConstants.baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+
+  /// URL absoluta de un archivo subido (`/uploads/...`).
+  String fileUrl(String url) => url.startsWith('http') ? url : '$serverOrigin$url';
+
+  bool get hasSession => _token != null;
+
+  /// Petición JSON a la API. Devuelve el JSON decodificado (o null si no hay cuerpo).
+  /// Lanza [ApiException] con el mensaje del servidor o `offline: true` sin conexión.
+  Future<dynamic> request(
+    String method,
+    String path, {
+    Object? body,
+    Map<String, String>? query,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final cleanQuery = {...?query}..removeWhere((_, v) => v.isEmpty);
+    var uri = Uri.parse('${ApiConstants.baseUrl}$path');
+    if (cleanQuery.isNotEmpty) uri = uri.replace(queryParameters: cleanQuery);
+    final headers = _headers(json: body != null);
+    final encoded = body != null ? jsonEncode(body) : null;
+
+    final http.Response res;
+    try {
+      res = await switch (method) {
+        'GET' => http.get(uri, headers: headers),
+        'POST' => http.post(uri, headers: headers, body: encoded),
+        'PATCH' => http.patch(uri, headers: headers, body: encoded),
+        'DELETE' => http.delete(uri, headers: headers, body: encoded),
+        _ => throw ArgumentError('Método no soportado: $method'),
+      }
+          .timeout(timeout);
+    } catch (_) {
+      throw const ApiException('Sin conexión con el servidor.', offline: true);
+    }
+    return _decode(res);
+  }
+
+  dynamic _decode(http.Response res) {
+    dynamic data;
+    if (res.body.isNotEmpty) {
+      try {
+        data = jsonDecode(utf8.decode(res.bodyBytes));
+      } catch (_) {}
+    }
+    if (res.statusCode >= 200 && res.statusCode < 300) return data;
+    final message =
+        data is Map && data['error'] is String ? data['error'] as String : 'Error del servidor (${res.statusCode}).';
+    throw ApiException(message, status: res.statusCode);
+  }
+
+  /// RF-12: sube un archivo (≤ 10 MB) y devuelve el adjunto creado. Requiere sesión.
+  Future<AttachmentModel> uploadFile({required String fileName, required Uint8List bytes}) async {
+    if (_token == null) {
+      throw const ApiException('Inicia sesión con conexión para subir archivos.');
+    }
+    if (bytes.length > 10 * 1024 * 1024) {
+      throw const ApiException('El archivo supera 10 MB.');
+    }
+    final req = http.MultipartRequest('POST', Uri.parse('${ApiConstants.baseUrl}/uploads'))
+      ..headers.addAll(_headers())
+      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: fileName));
+    final http.Response res;
+    try {
+      res = await http.Response.fromStream(await req.send().timeout(const Duration(seconds: 60)));
+    } catch (_) {
+      throw const ApiException('Sin conexión con el servidor.', offline: true);
+    }
+    return AttachmentModel.fromJson(_decode(res) as Map<String, dynamic>);
+  }
+
+  /// Vuelve a pedir el perfil del usuario actual (Karma, seguidores...).
+  Future<void> refreshCurrentUser() async {
+    if (_offlineMode) return;
+    try {
+      final data = await request('GET', '/users/me');
+      if (data is Map<String, dynamic>) _setCurrentUser(UserModel.fromJson(data));
+    } catch (_) {}
+  }
 
   // --- SESIÓN (LOGIN) ---
 
@@ -412,110 +529,160 @@ app.post('/api/validate', (req: Request, res: Response) => {
 
   // --- MÉTODOS DE LA API CON RETORNO RESILIENTE (FALLBACK AUTOMÁTICO) ---
 
-  Future<List<ArticleModel>> getArticles() async {
-    try {
-      final res = await http
-          .get(Uri.parse(ApiConstants.articlesEndpoint))
-          .timeout(const Duration(seconds: 2));
-      if (res.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(res.body);
-        return data.map((e) => ArticleModel.fromJson(e)).toList();
-      }
-    } catch (_) {}
+  /// RF-01 / §1.1: [source] 'official' | 'community' (null = ambos). [sort] 'top' | 'new'.
+  /// Sin backend devuelve los artículos oficiales semilla (la comunidad necesita conexión).
+  Future<List<ArticleModel>> getArticles({String? source, String sort = 'top', String? authorId}) async {
+    if (!_offlineMode) {
+      try {
+        final data = await request('GET', '/articles',
+            query: {'source': source ?? '', 'sort': sort, 'authorId': authorId ?? ''},
+            timeout: const Duration(seconds: 3));
+        return (data as List).map((e) => ArticleModel.fromJson(e)).toList();
+      } catch (_) {}
+    }
+    if (source == 'community' || authorId != null) return [];
     return _mockArticles;
   }
 
-  Future<List<ChallengeModel>> getChallenges() async {
-    try {
-      final res = await http
-          .get(Uri.parse(ApiConstants.challengesEndpoint))
-          .timeout(const Duration(seconds: 2));
-      if (res.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(res.body);
-        return data.map((e) => ChallengeModel.fromJson(e)).toList();
-      }
-    } catch (_) {}
+  Future<List<ChallengeModel>> getChallenges({String? source, String sort = 'top', String? authorId}) async {
+    if (!_offlineMode) {
+      try {
+        final data = await request('GET', '/challenges',
+            query: {'source': source ?? '', 'sort': sort, 'authorId': authorId ?? ''},
+            timeout: const Duration(seconds: 3));
+        return (data as List).map((e) => ChallengeModel.fromJson(e)).toList();
+      } catch (_) {}
+    }
+    if (source == 'community' || authorId != null) return [];
     return _mockChallenges;
   }
 
   Future<ChallengeModel?> getChallengeById(String id) async {
-    final challenges = await getChallenges();
+    if (!_offlineMode) {
+      try {
+        final data = await request('GET', '/challenges/$id', timeout: const Duration(seconds: 3));
+        return ChallengeModel.fromJson(data as Map<String, dynamic>);
+      } catch (_) {}
+    }
     try {
-      return challenges.firstWhere((c) => c.id == id);
+      return _mockChallenges.firstWhere((c) => c.id == id);
     } catch (_) {
-      return challenges.isNotEmpty ? challenges.first : null;
+      return _mockChallenges.isNotEmpty ? _mockChallenges.first : null;
     }
   }
 
-  Future<List<ForumPostModel>> getForumPosts() async {
+  Future<ArticleModel?> getArticleById(String id) async {
+    if (!_offlineMode) {
+      try {
+        final data = await request('GET', '/articles/$id', timeout: const Duration(seconds: 3));
+        return ArticleModel.fromJson(data as Map<String, dynamic>);
+      } catch (_) {}
+    }
     try {
-      final res = await http
-          .get(Uri.parse(ApiConstants.communityEndpoint))
-          .timeout(const Duration(seconds: 2));
-      if (res.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(res.body);
-        return data.map((e) => ForumPostModel.fromJson(e)).toList();
-      }
-    } catch (_) {}
-    return _mockPosts;
+      return _mockArticles.firstWhere((a) => a.id == id);
+    } catch (_) {
+      return null;
+    }
   }
 
+  /// RF-11 / RF-13: feed de Comunidad. [sort] 'top' | 'new'; [savedOnly] = mis guardados.
+  Future<List<ForumPostModel>> getForumPosts({
+    String sort = 'top',
+    bool savedOnly = false,
+    String? authorId,
+  }) async {
+    if (!_offlineMode) {
+      try {
+        final data = await request('GET', '/feed',
+            query: {'sort': sort, 'saved': savedOnly ? 'me' : '', 'authorId': authorId ?? ''},
+            timeout: const Duration(seconds: 3));
+        return (data as List).map((e) => ForumPostModel.fromJson(e)).toList();
+      } catch (_) {}
+    }
+    var posts = _mockPosts.where((p) => authorId == null || p.authorId == authorId);
+    if (savedOnly) posts = posts.where((p) => p.isSaved);
+    final list = posts.toList();
+    if (sort == 'top') list.sort((a, b) => b.score.compareTo(a.score));
+    return list;
+  }
+
+  /// Publica en el foro (+10 Karma). Con backend usa la respuesta del servidor;
+  /// sin conexión la guarda en memoria para la demo.
   Future<void> addForumPost(ForumPostModel post) async {
+    if (!_offlineMode) {
+      try {
+        final data = await request('POST', '/community', body: {
+          ...post.toJson(),
+          'attachments': post.attachments.map((a) => a.id).toList(),
+        });
+        if (data is Map<String, dynamic>) applyServerUser(data['user']);
+        return;
+      } on ApiException catch (e) {
+        if (!e.offline) rethrow;
+      }
+    }
     _mockPosts.insert(0, post);
     addKarma(10); // +10 Karma por aportar al foro
-    try {
-      await http
-          .post(
-            Uri.parse(ApiConstants.communityEndpoint),
-            headers: _headers(json: true),
-            body: jsonEncode(post.toJson()),
-          )
-          .timeout(const Duration(seconds: 2));
-    } catch (_) {}
   }
 
-  Future<void> addReplyToPost(String postId, ForumReply reply) async {
+  /// RF-14: responder no da Karma; da +15 cuando el autor la marca como solución.
+  Future<ForumPostModel?> addReplyToPost(String postId, ForumReply reply) async {
+    if (!_offlineMode) {
+      try {
+        final data = await request('POST', '/community/$postId/replies', body: reply.toJson());
+        if (data is Map<String, dynamic> && data['post'] is Map<String, dynamic>) {
+          return ForumPostModel.fromJson(data['post'] as Map<String, dynamic>);
+        }
+        return null;
+      } on ApiException catch (e) {
+        if (!e.offline) rethrow;
+      }
+    }
     try {
       final post = _mockPosts.firstWhere((p) => p.id == postId);
       post.replies.add(reply);
-    } catch (_) {}
-    addKarma(15); // +15 Karma por responder y ayudar a un compañero
-    try {
-      await http
-          .post(
-            Uri.parse('${ApiConstants.communityEndpoint}/$postId/replies'),
-            headers: _headers(json: true),
-            body: jsonEncode(reply.toJson()),
-          )
-          .timeout(const Duration(seconds: 2));
-    } catch (_) {}
+      return post;
+    } catch (_) {
+      return null;
+    }
   }
 
-  Future<void> upvotePost(String postId) async {
+  /// RF-11: voto 1, -1 o 0 (quitar). Devuelve la publicación actualizada.
+  Future<ForumPostModel?> votePost(String postId, int value) async {
+    if (!_offlineMode) {
+      try {
+        final data = await request('POST', '/posts/$postId/vote', body: {'value': value});
+        return ForumPostModel.fromJson(data as Map<String, dynamic>);
+      } on ApiException catch (e) {
+        if (!e.offline) rethrow;
+      }
+    }
     try {
       final post = _mockPosts.firstWhere((p) => p.id == postId);
-      post.upvotes += 1;
-    } catch (_) {}
-    try {
-      await http
-          .post(
-            Uri.parse('${ApiConstants.communityEndpoint}/$postId/upvote'),
-            headers: _headers(),
-          )
-          .timeout(const Duration(seconds: 2));
-    } catch (_) {}
+      if (post.myVote == 1) post.upvotes--;
+      if (post.myVote == -1) post.downvotes--;
+      if (value == 1) post.upvotes++;
+      if (value == -1) post.downvotes++;
+      post.myVote = value;
+      return post;
+    } catch (_) {
+      return null;
+    }
   }
 
+  /// Compatibilidad: voto positivo.
+  Future<void> upvotePost(String postId) async {
+    await votePost(postId, 1);
+  }
+
+  /// Con sesión el servidor incluye hasApplied y, en mis vacantes, applicationsCount.
   Future<List<JobOpportunityModel>> getJobs() async {
-    try {
-      final res = await http
-          .get(Uri.parse(ApiConstants.jobsEndpoint))
-          .timeout(const Duration(seconds: 2));
-      if (res.statusCode == 200) {
-        final List<dynamic> data = jsonDecode(res.body);
-        return data.map((e) => JobOpportunityModel.fromJson(e)).toList();
-      }
-    } catch (_) {}
+    if (!_offlineMode) {
+      try {
+        final data = await request('GET', '/jobs', timeout: const Duration(seconds: 3));
+        return (data as List).map((e) => JobOpportunityModel.fromJson(e)).toList();
+      } catch (_) {}
+    }
     return _mockJobs;
   }
 
@@ -535,16 +702,17 @@ app.post('/api/validate', (req: Request, res: Response) => {
               'userId': _currentUser.id,
             }),
           )
-          .timeout(const Duration(seconds: 3));
+          // El validador real corta a los 2,5 s; el margen cubre la red y el arranque de Dart.
+          .timeout(const Duration(seconds: 6));
 
       if (res.statusCode == 200) {
         final result = jsonDecode(res.body) as Map<String, dynamic>;
         final serverUser = result['user'];
         if (serverUser is Map<String, dynamic>) {
           // El backend es la fuente de verdad del karma (sólo suma la 1.ª vez).
-          _currentUser = UserModel.fromJson(serverUser);
+          _setCurrentUser(UserModel.fromJson(serverUser));
         } else if (result['passed'] == true) {
-          addKarma(50);
+          addKarma(10);
           if (!_currentUser.solvedChallenges.contains(challengeId)) {
             _currentUser.solvedChallenges.add(challengeId);
           }
@@ -587,15 +755,17 @@ app.post('/api/validate', (req: Request, res: Response) => {
       }
     }
 
-    if (passed) {
-      addKarma(50);
-      if (!_currentUser.solvedChallenges.contains(challengeId)) {
-        _currentUser.solvedChallenges.add(challengeId);
-      }
+    // RF-14: +10 la primera vez (los retos sin conexión son los oficiales semilla).
+    var karmaAwarded = 0;
+    if (passed && !_currentUser.solvedChallenges.contains(challengeId)) {
+      _currentUser.solvedChallenges.add(challengeId);
+      karmaAwarded = 10;
+      addKarma(karmaAwarded);
     }
 
     return {
       'passed': passed,
+      'karmaAwarded': karmaAwarded,
       'message': feedback,
       'executionTimeMs': 38,
       'testsPassed': passed ? 2 : 1,
@@ -605,5 +775,6 @@ app.post('/api/validate', (req: Request, res: Response) => {
 
   void addKarma(int amount) {
     _currentUser.karmaPoints += amount;
+    userVersion.value++;
   }
 }

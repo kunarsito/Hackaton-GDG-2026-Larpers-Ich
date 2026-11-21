@@ -1,10 +1,21 @@
 /**
  * Contratos de datos compartidos con el cliente Flutter (app/lib/models/).
- * Mantener los nombres de campo EXACTAMENTE iguales a los de los modelos Dart.
+ * Mantener los nombres de campo EXACTAMENTE iguales a los de los modelos Dart
+ * (SRS §4.2 y §5.1). Los campos marcados "por usuario" dependen de quién pide
+ * (myVote, isSaved, isFollowing...) y no se guardan tal cual en la BD.
  */
 
 export type Difficulty = 'Básico' | 'Intermedio' | 'Avanzado';
 export type JobType = 'Pasantía' | 'Junior' | 'Freelance';
+export type ContentSource = 'official' | 'community';
+export type Role = 'student' | 'creator' | 'recruiter' | 'admin';
+export type PostType = 'post' | 'question' | 'challenge' | 'course' | 'snippet' | 'article';
+
+export interface UserLinks {
+  github?: string;
+  linkedin?: string;
+  website?: string;
+}
 
 export interface User {
   id: string;
@@ -12,6 +23,19 @@ export interface User {
   university: string;
   karmaPoints: number;
   solvedChallenges: string[];
+  roles: Role[];
+  avatarUrl?: string;
+  /** Máx. 300 caracteres (RF-15). */
+  bio: string;
+  links: UserLinks;
+  skills: string[];
+  followers: number;
+  following: number;
+  openToWork: boolean;
+  /** PDF subido con /api/uploads. */
+  cvUrl?: string;
+  /** Por usuario: si quien pide sigue a este perfil. */
+  isFollowing?: boolean;
 }
 
 export interface Article {
@@ -22,6 +46,14 @@ export interface Article {
   summary: string;
   content: string;
   relatedChallengeId: string;
+  source: ContentSource;
+  authorId?: string;
+  authorName?: string;
+  upvotes: number;
+  downvotes: number;
+  createdAt: string;
+  /** Por usuario: 1, -1 o 0. */
+  myVote?: number;
 }
 
 export interface TestCase {
@@ -42,6 +74,53 @@ export interface Challenge {
   testCases: TestCase[];
   /** Extra del backend (el front lo ignora): función que el validador invoca. */
   functionName: string;
+  source: ContentSource;
+  authorId?: string;
+  authorName?: string;
+  upvotes: number;
+  downvotes: number;
+  forkedFromId?: string;
+  createdAt: string;
+  myVote?: number;
+}
+
+export interface CourseLesson {
+  order: number;
+  title: string;
+  articleId?: string;
+  challengeId?: string;
+}
+
+export interface Course {
+  id: string;
+  source: ContentSource;
+  authorId?: string;
+  authorName?: string;
+  title: string;
+  description: string;
+  coverUrl?: string;
+  level: Difficulty;
+  tags: string[];
+  lessons: CourseLesson[];
+  /** 0–5 */
+  ratingAvg: number;
+  ratingCount: number;
+  enrolledCount: number;
+  createdAt: string;
+  /** Por usuario */
+  isEnrolled?: boolean;
+  isCompleted?: boolean;
+  myRating?: number;
+}
+
+export interface Attachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  /** ≤ 10 MB */
+  sizeBytes: number;
+  /** Ruta relativa al servidor: /uploads/<archivo> */
+  url: string;
 }
 
 export interface ForumReply {
@@ -65,6 +144,18 @@ export interface ForumPost {
   replies: ForumReply[];
   upvotes: number;
   createdAt?: string;
+  type: PostType;
+  downvotes: number;
+  attachments: Attachment[];
+  savedCount: number;
+  forkedFromId?: string;
+  /** Respuesta marcada como solución (RF-14: +15 Karma). */
+  acceptedReplyId?: string;
+  /** Id del reto/curso/artículo que anuncia la publicación. */
+  refId?: string;
+  /** Por usuario */
+  myVote?: number;
+  isSaved?: boolean;
 }
 
 export interface JobOpportunity {
@@ -77,6 +168,72 @@ export interface JobOpportunity {
   contactUrl: string;
   requirements?: string[];
   createdAt?: string;
+  posterId?: string;
+  /** Por usuario */
+  hasApplied?: boolean;
+  /** Sólo para quien publicó la vacante. */
+  applicationsCount?: number;
+}
+
+/** Resumen público de un usuario para listas (mensajes, postulantes, ranking). */
+export interface UserSummary {
+  id: string;
+  name: string;
+  university: string;
+  avatarUrl?: string;
+  karmaPoints: number;
+}
+
+export interface Conversation {
+  id: string;
+  participantIds: [string, string];
+  lastMessageAt: string;
+  unreadCount: number;
+  otherUser: UserSummary;
+  lastMessage?: string;
+}
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  body: string;
+  attachments: Attachment[];
+  createdAt: string;
+  readAt?: string;
+}
+
+export type ApplicationStatus = 'enviada' | 'vista' | 'contactado';
+
+export interface JobApplication {
+  id: string;
+  jobId: string;
+  applicantId: string;
+  cvUrl: string;
+  message: string;
+  status: ApplicationStatus;
+  createdAt: string;
+  applicant?: UserSummary;
+  jobTitle?: string;
+}
+
+export type KarmaReason =
+  | 'challenge_official'
+  | 'challenge_community'
+  | 'post_created'
+  | 'upvote'
+  | 'downvote'
+  | 'accepted_answer'
+  | 'course_completed'
+  | 'gift';
+
+export interface KarmaEvent {
+  id: string;
+  userId: string;
+  amount: number;
+  reason: KarmaReason;
+  fromUserId?: string;
+  createdAt: string;
 }
 
 export interface TestResult {

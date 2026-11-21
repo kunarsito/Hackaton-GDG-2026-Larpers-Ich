@@ -357,9 +357,8 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(bottom: 12),
               decoration: BoxDecoration(
-                color: passed
-                    ? AppTheme.phosphorGreen.withValues(alpha: 0.12)
-                    : AppTheme.alertRed.withValues(alpha: 0.12),
+                color:
+                    passed ? AppTheme.phosphorGreen.withValues(alpha: 0.12) : AppTheme.alertRed.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
                   color: passed ? AppTheme.phosphorGreen : AppTheme.alertRed,
@@ -380,7 +379,9 @@ class _ChallengeDetailScreenState extends State<ChallengeDetailScreen> {
                       children: [
                         Text(
                           passed
-                              ? '[TEST_PASSED] ¡Solución correcta! (+50 Karma)'
+                              ? (((_lastValidationResult!['karmaAwarded'] as num?)?.toInt() ?? 0) > 0
+                                  ? '[TEST_PASSED] ¡Solución correcta! (+${_lastValidationResult!['karmaAwarded']} Karma)'
+                                  : '[TEST_PASSED] ¡Solución correcta!')
                               : '[TEST_FAILED] Error de validación',
                           style: TextStyle(
                             fontFamily: AppTheme.monoFont,
