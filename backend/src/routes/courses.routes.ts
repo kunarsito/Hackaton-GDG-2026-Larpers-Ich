@@ -1,12 +1,13 @@
 /** RF-09 Cursos (oficiales y de creadores): inscripción, avance, calificación y ranking por rating. */
 import { Router } from 'express';
 import { getDb, newId, transaction } from '../db/database.js';
-import { addKarma, addRole, ensureUser, KARMA, parseJson, userName } from '../services/karma.service.js';
+import { addKarma, addRole, ensureUser, getUser, KARMA, parseJson, userName } from '../services/karma.service.js';
 import {
   currentUserId,
   HttpError,
   optionalString,
   optionalStringArray,
+  requireSessionUserId,
   requireString,
   sortParam,
 } from '../utils/http.js';
@@ -81,6 +82,55 @@ function requireCourse(id: string, viewerId: string): Course {
   return course;
 }
 
+/** Valida y normaliza los datos editables de un curso (crear y editar comparten reglas). */
+function parseCourseInput(body: Record<string, unknown>, userId: string) {
+  const title = requireString(body, 'title', 150);
+  const description = requireString(body, 'description', 3_000);
+  const level = requireString(body, 'level', 20) as Difficulty;
+  if (!LEVELS.includes(level)) throw new HttpError(400, `"level" debe ser: ${LEVELS.join(', ')}.`);
+  const tags = optionalStringArray(body, 'tags', 8, 30);
+  const coverRaw = optionalString(body, 'coverUrl', 300);
+  const coverUrl = coverRaw ? ownUploadUrl(coverRaw, userId, 'image') : null;
+
+  if (!Array.isArray(body.lessons) || body.lessons.length === 0) throw new HttpError(400, 'Agrega al menos una lección.');
+  if (body.lessons.length > 30) throw new HttpError(400, 'Máximo 30 lecciones.');
+  const lessons: CourseLesson[] = body.lessons.map((raw, i) => {
+    const l = (raw ?? {}) as Record<string, unknown>;
+    const articleId = typeof l.articleId === 'string' && l.articleId ? l.articleId : undefined;
+    const challengeId = typeof l.challengeId === 'string' && l.challengeId ? l.challengeId : undefined;
+    if (!articleId && !challengeId) throw new HttpError(400, `La lección ${i + 1} debe enlazar un artículo o un reto.`);
+    const article = articleId ? findArticle(articleId) : null;
+    const challenge = challengeId ? findChallenge(challengeId) : null;
+    if (articleId && !article) throw new HttpError(400, `Artículo "${articleId}" no existe.`);
+    if (challengeId && !challenge) throw new HttpError(400, `Reto "${challengeId}" no existe.`);
+    const lessonTitle =
+      (typeof l.title === 'string' && l.title.trim().slice(0, 150)) || article?.title || challenge?.title || `Lección ${i + 1}`;
+    return { order: i + 1, title: lessonTitle, articleId, challengeId };
+  });
+  return { title, description, level, tags, coverUrl, lessons };
+}
+
+/** Sólo el autor (o un admin) puede editar o borrar un curso; los oficiales no se tocan desde aquí. */
+function requireCourseOwner(id: string, userId: string): Course {
+  const course = requireCourse(id, userId);
+  const isAdmin = getUser(userId)?.roles.includes('admin') ?? false;
+  if (course.source === 'official' && !isAdmin) throw new HttpError(403, 'Los cursos oficiales no se pueden modificar.');
+  if (course.authorId !== userId && !isAdmin) throw new HttpError(403, 'Sólo el creador puede modificar este curso.');
+  return course;
+}
+
+/** Lecciones-reto del curso que el usuario aún no ha resuelto. */
+function pendingChallengeLessons(course: Course, userId: string): CourseLesson[] {
+  const solved = new Set(
+    (
+      getDb().prepare('SELECT challenge_id FROM solved_challenges WHERE user_id = ?').all(userId) as {
+        challenge_id: string;
+      }[]
+    ).map((r) => r.challenge_id),
+  );
+  return course.lessons.filter((l) => l.challengeId && !solved.has(l.challengeId));
+}
+
 export const coursesRouter = Router();
 
 /** GET /api/courses?source=official|community&sort=top|new&authorId=&enrolled=me */
@@ -122,29 +172,7 @@ coursesRouter.get('/:id', (req, res) => {
 coursesRouter.post('/', (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
   const user = ensureUser(currentUserId(req));
-  const title = requireString(body, 'title', 150);
-  const description = requireString(body, 'description', 3_000);
-  const level = requireString(body, 'level', 20) as Difficulty;
-  if (!LEVELS.includes(level)) throw new HttpError(400, `"level" debe ser: ${LEVELS.join(', ')}.`);
-  const tags = optionalStringArray(body, 'tags', 8, 30);
-  const coverRaw = optionalString(body, 'coverUrl', 300);
-  const coverUrl = coverRaw ? ownUploadUrl(coverRaw, user.id, 'image') : null;
-
-  if (!Array.isArray(body.lessons) || body.lessons.length === 0) throw new HttpError(400, 'Agrega al menos una lección.');
-  if (body.lessons.length > 30) throw new HttpError(400, 'Máximo 30 lecciones.');
-  const lessons: CourseLesson[] = body.lessons.map((raw, i) => {
-    const l = (raw ?? {}) as Record<string, unknown>;
-    const articleId = typeof l.articleId === 'string' && l.articleId ? l.articleId : undefined;
-    const challengeId = typeof l.challengeId === 'string' && l.challengeId ? l.challengeId : undefined;
-    if (!articleId && !challengeId) throw new HttpError(400, `La lección ${i + 1} debe enlazar un artículo o un reto.`);
-    const article = articleId ? findArticle(articleId) : null;
-    const challenge = challengeId ? findChallenge(challengeId) : null;
-    if (articleId && !article) throw new HttpError(400, `Artículo "${articleId}" no existe.`);
-    if (challengeId && !challenge) throw new HttpError(400, `Reto "${challengeId}" no existe.`);
-    const lessonTitle =
-      (typeof l.title === 'string' && l.title.trim().slice(0, 150)) || article?.title || challenge?.title || `Lección ${i + 1}`;
-    return { order: i + 1, title: lessonTitle, articleId, challengeId };
-  });
+  const { title, description, level, tags, coverUrl, lessons } = parseCourseInput(body, user.id);
 
   const id = newId('crs');
   transaction(() => {
@@ -166,6 +194,43 @@ coursesRouter.post('/', (req, res) => {
   res.status(201).json(getCourse(id, user.id));
 });
 
+/**
+ * PATCH /api/courses/:id — editar un curso propio (mismos campos que al crearlo).
+ * Exige sesión real. Actualiza también el anuncio del curso en el feed.
+ */
+coursesRouter.patch('/:id', (req, res) => {
+  const userId = requireSessionUserId(req);
+  const course = requireCourseOwner(req.params.id, userId);
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const { title, description, level, tags, coverUrl, lessons } = parseCourseInput(body, userId);
+  transaction(() => {
+    getDb()
+      .prepare(
+        `UPDATE courses SET title = ?, description = ?, cover_url = ?, level = ?, tags = ?, lessons = ?
+         WHERE id = ?`,
+      )
+      .run(title, description, coverUrl, level, JSON.stringify(tags), JSON.stringify(lessons), course.id);
+    getDb()
+      .prepare(`UPDATE forum_posts SET title = ?, body = ? WHERE type = 'course' AND ref_id = ?`)
+      .run(`Nuevo curso: ${title}`, description.slice(0, 400), course.id);
+  });
+  res.json(getCourse(course.id, userId));
+});
+
+/**
+ * DELETE /api/courses/:id — borrar un curso propio. Las inscripciones y
+ * calificaciones se borran en cascada; también se quita su anuncio del feed.
+ */
+coursesRouter.delete('/:id', (req, res) => {
+  const userId = requireSessionUserId(req);
+  const course = requireCourseOwner(req.params.id, userId);
+  transaction(() => {
+    getDb().prepare(`DELETE FROM forum_posts WHERE type = 'course' AND ref_id = ?`).run(course.id);
+    getDb().prepare('DELETE FROM courses WHERE id = ?').run(course.id);
+  });
+  res.status(204).end();
+});
+
 /** POST /api/courses/:id/enroll */
 coursesRouter.post('/:id/enroll', (req, res) => {
   const userId = currentUserId(req);
@@ -184,6 +249,15 @@ coursesRouter.post('/:id/complete', (req, res) => {
   if (course.isCompleted) {
     res.json({ course, karmaAwarded: 0 });
     return;
+  }
+  // Un curso sólo se completa cuando todas sus prácticas (lecciones-reto) están resueltas.
+  const pending = pendingChallengeLessons(course, userId);
+  if (pending.length > 0) {
+    const list = pending.map((l) => `${l.order}. ${l.title}`).join('; ');
+    throw new HttpError(
+      400,
+      `Te ${pending.length === 1 ? 'falta 1 práctica' : `faltan ${pending.length} prácticas`} por resolver: ${list}.`,
+    );
   }
   let karmaAwarded = 0;
   transaction(() => {

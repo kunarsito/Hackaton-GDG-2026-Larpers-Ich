@@ -341,14 +341,16 @@ Future<bool> showCreateChallengeSheet(BuildContext context, {ChallengeModel? for
 // Curso (lecciones = artículos o retos, propios u oficiales)
 // ---------------------------------------------------------------------------
 
-Future<bool> showCreateCourseSheet(BuildContext context) async {
+/// Crea un curso o, si se pasa [existing], edita ese curso (sólo su autor).
+Future<bool> showCreateCourseSheet(BuildContext context, {CourseModel? existing}) async {
   if (!requireOnline(context)) return false;
   final api = ApiService();
-  final title = TextEditingController();
-  final description = TextEditingController();
-  final tags = TextEditingController();
-  var level = 'Básico';
-  final lessons = <CourseLesson>[];
+  final isEdit = existing != null;
+  final title = TextEditingController(text: existing?.title ?? '');
+  final description = TextEditingController(text: existing?.description ?? '');
+  final tags = TextEditingController(text: existing?.tags.join(', ') ?? '');
+  var level = existing?.level ?? 'Básico';
+  final lessons = <CourseLesson>[...?existing?.lessons];
   String? error;
   var busy = false;
 
@@ -365,7 +367,7 @@ Future<bool> showCreateCourseSheet(BuildContext context) async {
 
   final result = await showTerminalSheet<bool>(
     context,
-    title: 'NUEVO CURSO // CREADOR',
+    title: isEdit ? 'EDITAR CURSO // CREADOR' : 'NUEVO CURSO // CREADOR',
     icon: Icons.school_outlined,
     builder: (ctx, setSheet) => Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -469,7 +471,7 @@ Future<bool> showCreateCourseSheet(BuildContext context) async {
         ),
         _errorText(error),
         const SizedBox(height: 12),
-        _submitButton('PUBLICAR CURSO', busy, () async {
+        _submitButton(isEdit ? 'GUARDAR CAMBIOS' : 'PUBLICAR CURSO', busy, () async {
           if (title.text.trim().isEmpty || description.text.trim().isEmpty || lessons.isEmpty) {
             setSheet(() => error = 'Título, descripción y al menos una lección son obligatorios.');
             return;
@@ -479,21 +481,34 @@ Future<bool> showCreateCourseSheet(BuildContext context) async {
             error = null;
           });
           try {
-            await api.createCourse(
-              title: title.text.trim(),
-              description: description.text.trim(),
-              level: level,
-              tags: tags.text.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList(),
-              lessons: [
-                for (var i = 0; i < lessons.length; i++)
-                  CourseLesson(
-                    order: i + 1,
-                    title: lessons[i].title,
-                    articleId: lessons[i].articleId,
-                    challengeId: lessons[i].challengeId,
-                  ),
-              ],
-            );
+            final tagList = tags.text.split(',').map((t) => t.trim()).where((t) => t.isNotEmpty).toList();
+            final lessonList = [
+              for (var i = 0; i < lessons.length; i++)
+                CourseLesson(
+                  order: i + 1,
+                  title: lessons[i].title,
+                  articleId: lessons[i].articleId,
+                  challengeId: lessons[i].challengeId,
+                ),
+            ];
+            if (isEdit) {
+              await api.updateCourse(
+                existing.id,
+                title: title.text.trim(),
+                description: description.text.trim(),
+                level: level,
+                tags: tagList,
+                lessons: lessonList,
+              );
+            } else {
+              await api.createCourse(
+                title: title.text.trim(),
+                description: description.text.trim(),
+                level: level,
+                tags: tagList,
+                lessons: lessonList,
+              );
+            }
             if (ctx.mounted) Navigator.pop(ctx, true);
           } catch (e) {
             setSheet(() {
@@ -505,7 +520,7 @@ Future<bool> showCreateCourseSheet(BuildContext context) async {
       ],
     ),
   );
-  if (result == true && context.mounted) showSysSnack(context, 'Curso publicado.');
+  if (result == true && context.mounted) showSysSnack(context, isEdit ? 'Curso actualizado.' : 'Curso publicado.');
   return result == true;
 }
 

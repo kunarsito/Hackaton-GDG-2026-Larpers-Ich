@@ -18,7 +18,7 @@ class CoursesView extends StatefulWidget {
 
 class _CoursesViewState extends State<CoursesView> {
   final ApiService _api = ApiService();
-  String _filter = 'all'; // all | official | community | mine
+  String _filter = 'all'; // all | official | community | mine (inscrito) | own (creados por mí)
   String _sort = 'top';
   Future<List<CourseModel>>? _future;
 
@@ -35,6 +35,7 @@ class _CoursesViewState extends State<CoursesView> {
             source: _filter == 'official' || _filter == 'community' ? _filter : null,
             sort: _sort,
             enrolledOnly: _filter == 'mine',
+            authorId: _filter == 'own' ? _api.currentUser.id : null,
           )
           .catchError((Object e) => <CourseModel>[]);
     });
@@ -45,43 +46,36 @@ class _CoursesViewState extends State<CoursesView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: ChoiceChipsRow(
-                options: const ['all', 'official', 'community', 'mine'],
-                labels: const ['Todos', 'Oficiales', 'Creadores', 'Inscrito'],
-                selected: _filter,
-                onSelected: (v) {
-                  _filter = v;
-                  _load();
-                },
-              ),
-            ),
-          ],
+        // En su propia fila para que no se superponga a los filtros en teléfonos pequeños.
+        Align(
+          alignment: Alignment.centerRight,
+          child: TerminalButton(
+            label: 'CREAR CURSO',
+            icon: Icons.add,
+            onPressed: () async {
+              if (await showCreateCourseSheet(context)) _load();
+            },
+          ),
+        ),
+        const SizedBox(height: 10),
+        ChoiceChipsRow(
+          options: const ['all', 'official', 'community', 'mine', 'own'],
+          labels: const ['Todos', 'Oficiales', 'Creadores', 'Inscrito', 'Mis cursos'],
+          selected: _filter,
+          onSelected: (v) {
+            _filter = v;
+            _load();
+          },
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: ChoiceChipsRow(
-                options: const ['top', 'new'],
-                labels: const ['Mejor valorados', 'Recientes'],
-                selected: _sort,
-                onSelected: (v) {
-                  _sort = v;
-                  _load();
-                },
-              ),
-            ),
-            TerminalButton(
-              label: 'CREAR CURSO',
-              icon: Icons.add,
-              onPressed: () async {
-                if (await showCreateCourseSheet(context)) _load();
-              },
-            ),
-          ],
+        ChoiceChipsRow(
+          options: const ['top', 'new'],
+          labels: const ['Mejor valorados', 'Recientes'],
+          selected: _sort,
+          onSelected: (v) {
+            _sort = v;
+            _load();
+          },
         ),
         const SizedBox(height: 14),
         FutureBuilder<List<CourseModel>>(
@@ -101,7 +95,9 @@ class _CoursesViewState extends State<CoursesView> {
                     ? '// Los cursos necesitan conexión con el servidor.'
                     : _filter == 'mine'
                         ? '// Aún no te inscribes a ningún curso.'
-                        : '// No hay cursos aquí todavía. ¡Crea el primero!',
+                        : _filter == 'own'
+                            ? '// Aún no has creado cursos. Pulsa CREAR CURSO.'
+                            : '// No hay cursos aquí todavía. ¡Crea el primero!',
               );
             }
             return Column(
@@ -116,6 +112,46 @@ class _CoursesViewState extends State<CoursesView> {
         ),
       ],
     );
+  }
+}
+
+/// Un curso es "mío" si lo creé yo (los oficiales nunca se editan desde la app).
+bool isMyCourse(CourseModel c) => !c.isOfficial && c.authorId != null && c.authorId == ApiService().currentUser.id;
+
+/// Abre el formulario del curso en modo edición. Devuelve true si se guardó.
+Future<bool> editCourse(BuildContext context, CourseModel course) => showCreateCourseSheet(context, existing: course);
+
+/// Pide confirmación y borra el curso. Devuelve true si se eliminó.
+Future<bool> confirmDeleteCourse(BuildContext context, CourseModel course) async {
+  if (!requireOnline(context)) return false;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: AppTheme.darkSilicon,
+      title: const Text('ELIMINAR CURSO',
+          style: TextStyle(fontFamily: AppTheme.monoFont, fontSize: 15, color: AppTheme.alertRed)),
+      content: Text(
+        '¿Eliminar "${course.title}"?\n\nSe borrarán también sus inscripciones, calificaciones y su '
+        'publicación en el feed. Esta acción no se puede deshacer.',
+        style: const TextStyle(color: AppTheme.boneWhite, fontSize: 13, height: 1.4),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCELAR')),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('ELIMINAR', style: TextStyle(color: AppTheme.alertRed, fontWeight: FontWeight.bold)),
+        ),
+      ],
+    ),
+  );
+  if (ok != true || !context.mounted) return false;
+  try {
+    await ApiService().deleteCourse(course.id);
+    if (context.mounted) showSysSnack(context, 'Curso eliminado.');
+    return true;
+  } catch (e) {
+    if (context.mounted) showApiError(context, e);
+    return false;
   }
 }
 
@@ -184,33 +220,77 @@ class CourseCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SourceBadge(
-                    isOfficial: course.isOfficial,
-                    authorId: course.authorId,
-                    authorName: course.authorName,
+                  Expanded(
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        SourceBadge(
+                          isOfficial: course.isOfficial,
+                          authorId: course.authorId,
+                          authorName: course.authorName,
+                        ),
+                        Text(
+                          'NIVEL: ${course.level.toUpperCase()}',
+                          style: const TextStyle(
+                              fontFamily: AppTheme.monoFont, fontSize: 10, color: AppTheme.greenishGray),
+                        ),
+                        if (course.isCompleted)
+                          const Text(
+                            '[COMPLETADO]',
+                            style: TextStyle(
+                                fontFamily: AppTheme.monoFont,
+                                fontSize: 10,
+                                color: AppTheme.phosphorGreen,
+                                fontWeight: FontWeight.bold),
+                          )
+                        else if (course.isEnrolled)
+                          const Text(
+                            '[INSCRITO]',
+                            style:
+                                TextStyle(fontFamily: AppTheme.monoFont, fontSize: 10, color: AppTheme.phosphorGreen),
+                          ),
+                      ],
+                    ),
                   ),
-                  Text(
-                    'NIVEL: ${course.level.toUpperCase()}',
-                    style: const TextStyle(fontFamily: AppTheme.monoFont, fontSize: 10, color: AppTheme.greenishGray),
-                  ),
-                  if (course.isCompleted)
-                    const Text(
-                      '[COMPLETADO]',
-                      style: TextStyle(
-                          fontFamily: AppTheme.monoFont,
-                          fontSize: 10,
-                          color: AppTheme.phosphorGreen,
-                          fontWeight: FontWeight.bold),
-                    )
-                  else if (course.isEnrolled)
-                    const Text(
-                      '[INSCRITO]',
-                      style: TextStyle(fontFamily: AppTheme.monoFont, fontSize: 10, color: AppTheme.phosphorGreen),
+                  if (isMyCourse(course))
+                    SizedBox(
+                      height: 24,
+                      width: 32,
+                      child: PopupMenuButton<String>(
+                        tooltip: 'Opciones del curso',
+                        padding: EdgeInsets.zero,
+                        color: AppTheme.darkSilicon,
+                        icon: const Icon(Icons.more_vert, size: 18, color: AppTheme.greenishGray),
+                        onSelected: (v) async {
+                          final changed = v == 'edit'
+                              ? await editCourse(context, course)
+                              : await confirmDeleteCourse(context, course);
+                          if (changed) onChanged?.call();
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.edit_outlined, color: AppTheme.phosphorGreen),
+                              title: Text('Editar', style: TextStyle(color: AppTheme.boneWhite)),
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: ListTile(
+                              dense: true,
+                              leading: Icon(Icons.delete_outline, color: AppTheme.alertRed),
+                              title: Text('Eliminar', style: TextStyle(color: AppTheme.alertRed)),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                 ],
               ),
@@ -320,8 +400,35 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final course = _course;
+    final mine = course != null && isMyCourse(course);
     return Scaffold(
-      appBar: AppBar(title: const Text('CURSO')),
+      appBar: AppBar(
+        title: const Text('CURSO'),
+        actions: [
+          if (mine) ...[
+            IconButton(
+              tooltip: 'Editar curso',
+              icon: const Icon(Icons.edit_outlined),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      if (await editCourse(context, course)) _load();
+                    },
+            ),
+            IconButton(
+              tooltip: 'Eliminar curso',
+              icon: const Icon(Icons.delete_outline, color: AppTheme.alertRed),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      if (await confirmDeleteCourse(context, course) && context.mounted) {
+                        Navigator.of(context).pop(true);
+                      }
+                    },
+            ),
+          ],
+        ],
+      ),
       body: course == null
           ? Center(
               child: _error != null
@@ -366,18 +473,26 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                     Text(course.description,
                         style: const TextStyle(fontSize: 14, height: 1.5, color: AppTheme.boneWhite)),
                     const SizedBox(height: 12),
-                    Row(
+                    Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 12,
+                      runSpacing: 6,
                       children: [
-                        StarsRow(value: course.ratingAvg, size: 16),
-                        const SizedBox(width: 6),
-                        Text(
-                          course.ratingCount == 0
-                              ? 'Sin calificar'
-                              : '${course.ratingAvg} · ${course.ratingCount} calificaciones',
-                          style:
-                              const TextStyle(fontFamily: AppTheme.monoFont, fontSize: 11, color: AppTheme.solderGold),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            StarsRow(value: course.ratingAvg, size: 16),
+                            const SizedBox(width: 6),
+                            Text(
+                              course.ratingCount == 0
+                                  ? 'Sin calificar'
+                                  : '${course.ratingAvg} · ${course.ratingCount} calificaciones',
+                              style: const TextStyle(
+                                  fontFamily: AppTheme.monoFont, fontSize: 11, color: AppTheme.solderGold),
+                            ),
+                          ],
                         ),
-                        const Spacer(),
                         Text(
                           '${course.enrolledCount} inscritos',
                           style: const TextStyle(
@@ -449,9 +564,11 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                     }),
                     if (course.isEnrolled) ...[
                       const SizedBox(height: 12),
-                      if (!course.isCompleted)
+                      if (!course.isCompleted) ...[
+                        _PracticeProgress(course: course, solved: _api.currentUser.solvedChallenges),
+                        const SizedBox(height: 10),
                         OutlinedButton.icon(
-                          onPressed: _busy
+                          onPressed: _busy || _pendingPractices(course) > 0
                               ? null
                               : () => _run(() async {
                                     final (c, karma) = await _api.completeCourse(course.id);
@@ -467,9 +584,9 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                                   }),
                           icon: const Icon(Icons.flag_rounded),
                           label: const Text('MARCAR CURSO COMO COMPLETADO',
-                              style: TextStyle(fontFamily: AppTheme.monoFont)),
-                        )
-                      else
+                              textAlign: TextAlign.center, style: TextStyle(fontFamily: AppTheme.monoFont)),
+                        ),
+                      ] else
                         const Text(
                           '✔ Completaste este curso.',
                           style: TextStyle(fontFamily: AppTheme.monoFont, color: AppTheme.phosphorGreen),
@@ -501,6 +618,59 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
                 ),
               ),
             ),
+    );
+  }
+}
+
+/// Prácticas (lecciones-reto) del curso que el usuario aún no ha resuelto.
+int _pendingPractices(CourseModel course) {
+  final solved = ApiService().currentUser.solvedChallenges.toSet();
+  return course.lessons.where((l) => l.challengeId != null && !solved.contains(l.challengeId)).length;
+}
+
+/// Barra de progreso de prácticas: el curso sólo se puede completar al 100 %.
+class _PracticeProgress extends StatelessWidget {
+  final CourseModel course;
+  final List<String> solved;
+
+  const _PracticeProgress({required this.course, required this.solved});
+
+  @override
+  Widget build(BuildContext context) {
+    final practices = course.lessons.where((l) => l.challengeId != null).toList();
+    if (practices.isEmpty) return const SizedBox.shrink();
+    final done = practices.where((l) => solved.contains(l.challengeId)).length;
+    final complete = done == practices.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'PRÁCTICAS RESUELTAS: $done/${practices.length}',
+          style: TextStyle(
+            fontFamily: AppTheme.monoFont,
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: complete ? AppTheme.phosphorGreen : AppTheme.solderGold,
+          ),
+        ),
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            value: done / practices.length,
+            minHeight: 6,
+            backgroundColor: AppTheme.circuitTrace,
+            color: complete ? AppTheme.phosphorGreen : AppTheme.solderGold,
+          ),
+        ),
+        if (!complete) ...[
+          const SizedBox(height: 6),
+          const Text(
+            'Resuelve todas las prácticas del curso para poder marcarlo como completado.',
+            style: TextStyle(fontSize: 11.5, color: AppTheme.greenishGray),
+          ),
+        ],
+      ],
     );
   }
 }

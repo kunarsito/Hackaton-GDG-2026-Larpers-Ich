@@ -147,6 +147,30 @@ extension SocialApi on ApiService {
     return CourseModel.fromJson(data as Map<String, dynamic>);
   }
 
+  /// Edita un curso propio (mismos campos que al crearlo).
+  Future<CourseModel> updateCourse(
+    String id, {
+    required String title,
+    required String description,
+    required String level,
+    required List<String> tags,
+    required List<CourseLesson> lessons,
+  }) async {
+    final data = await request('PATCH', '/courses/$id', body: {
+      'title': title,
+      'description': description,
+      'level': level,
+      'tags': tags,
+      'lessons': lessons.map((l) => l.toJson()).toList(),
+    });
+    return CourseModel.fromJson(data as Map<String, dynamic>);
+  }
+
+  /// Borra un curso propio (y su anuncio en el feed).
+  Future<void> deleteCourse(String id) async {
+    await request('DELETE', '/courses/$id');
+  }
+
   Future<CourseModel> enrollCourse(String id) async =>
       CourseModel.fromJson(await request('POST', '/courses/$id/enroll') as Map<String, dynamic>);
 
