@@ -1,7 +1,12 @@
 import 'package:flutter/foundation.dart';
 
 class ApiConstants {
+  /// Permite apuntar a otra URL sin tocar código:
+  /// flutter run --dart-define=API_BASE_URL=http://localhost:3001/api
+  static const String _override = String.fromEnvironment('API_BASE_URL');
+
   static String get baseUrl {
+    if (_override.isNotEmpty) return _override;
     if (kIsWeb) {
       return 'http://localhost:3000/api';
     } else if (defaultTargetPlatform == TargetPlatform.android) {
